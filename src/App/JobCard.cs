@@ -8,7 +8,7 @@ sealed class JobRow:INotifyPropertyChanged {
  public string Id=>Job.Id;
  public string Title=>Job.Metadata?.Title??Path.GetFileName(Job.Input);
  public string Detail=>PresetCatalog.EngineName(Job.Preset.Engine)+" · "+Job.Preset.Codec+" · "+Job.Preset.Container+" · "+PresetCatalog.ResolutionName(Job.Preset);
- public string Status=>Job.State switch {State.Waiting=>"終了待ち",State.Running=>"変換中",State.Completed=>"完了",State.Failed=>"失敗",State.Cancelled=>"中止",State.NeedsInput=>"DRCS入力待ち",State.NeedsCmReview=>"CM確認待ち",_=>"中断"};
+ public string Status=>Job.State switch {State.Waiting=>"開始待ち",State.Running=>"変換中",State.Completed=>"完了",State.Failed=>"失敗",State.Cancelled=>"中止",State.NeedsInput=>"DRCS入力待ち",State.NeedsCmReview=>"CM確認待ち",_=>"中断"};
  public Color StatusColor=>Job.State==State.Failed?Color.FromArgb("#A6362B"):Job.State==State.Completed?Color.FromArgb("#167349"):Pixel.Blue;
  public string Message=>Job.Message;
  public double Progress=>Job.Progress/100;

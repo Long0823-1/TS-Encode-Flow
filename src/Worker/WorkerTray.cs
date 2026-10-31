@@ -42,7 +42,7 @@ sealed class WorkerTray:ApplicationContext {
   try {
    var status=Integration.ReadStatus(data);var jobs=Integration.ReadJobs(data);
    var pending=jobs.Where(j=>j.State==State.NeedsInput||j.State==State.NeedsCmReview).ToList();pendingPage=pending.Any(j=>j.State==State.NeedsCmReview)?"CM・タイムリスト":"字幕・DRCS";int waiting=jobs.Count(j=>j.State==State.Waiting);
-   string text=status.Paused?"一時停止中":status.Active>0?status.Active+"本を変換中":pending.Count>0?"確認待ち "+pending.Count+"本":waiting>0?"録画終了待ち "+waiting+"本":"待機中";
+   string text=status.Paused?"一時停止中":status.Active>0?status.Active+"本を変換中":pending.Count>0?"確認待ち "+pending.Count+"本":waiting>0?"開始待ち "+waiting+"本":"待機中";
    state.Text=text;icon.Text="TS Encode Flow · "+text;
    string ids=string.Join(",",pending.Select(j=>j.Id).OrderBy(x=>x));
    if(ids.Length>0&&ids!=lastPending){icon.ShowBalloonTip(8000,"CM・字幕の確認が必要です",pending.Count+"本が確認待ちです。クリックすると確認画面を開きます。",ToolTipIcon.Warning);}lastPending=ids;

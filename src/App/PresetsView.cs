@@ -24,6 +24,11 @@ sealed class PresetsView:ContentView {
     var card=Pixel.Stack(Pixel.Row(Pixel.Pill(p.Category),Pixel.Pill(p.Codec+" · "+p.Container,Color.FromArgb("#EDF2FA"))),Pixel.Text(p.Name,19,null,true),Pixel.Text(p.Summary,13,Pixel.Muted),Pixel.Text(PresetCatalog.ResolutionName(p)+"\n"+PresetCatalog.FilterName(p.Deinterlace),13,Pixel.Muted),Pixel.Button(chosen?"✓ 選択中":"この設定を使う",()=>{client.Choose(p);notice(p.Name+"を選びました。");Build();},!chosen),Pixel.Button("詳細・カスタマイズ",async()=> {
      var page=new PresetEditor(client,p,()=>{Build();notice("カスタムプリセットを保存しました。");});await Application.Current!.Windows[0].Page!.Navigation.PushAsync(page);
     }));
+    if(string.IsNullOrEmpty(p.FactoryId))card.Children.Add(Pixel.Button("このカスタムプリセットを削除",async()=> {
+     var page=Application.Current!.Windows[0].Page!;
+     if(!await page.DisplayAlert("カスタムプリセットを削除", "「"+p.Name+"」を削除しますか？\n登録済みの変換ジョブと作成済みの録画後BATは、その設定を保持します。", "削除する", "キャンセル"))return;
+     client.DeletePreset(p);Build();notice("「"+p.Name+"」を削除しました。選択中だった場合は標準プリセットへ切り替えました。");
+    }));
     grid.Add(Pixel.Card(card,chosen?Color.FromArgb("#E8F0FE"):Colors.White),n,0);
    }
    cards.Children.Add(grid);

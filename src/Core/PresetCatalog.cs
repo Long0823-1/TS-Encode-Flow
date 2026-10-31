@@ -4,6 +4,15 @@ using System.Linq;
 
 namespace TsEncodeFlow {
  public static class PresetCatalog {
+  public static void DeleteCustom(Settings settings,Preset preset) {
+   int index=settings.Presets.IndexOf(preset);
+   if(index<0||!string.IsNullOrEmpty(preset.FactoryId))throw new ArgumentException("削除できるのは自作のカスタムプリセットだけです。");
+   if(settings.Presets.Count<=1)throw new ArgumentException("プリセットを最低1つ残してください。");
+   int selected=settings.SelectedPreset,bat=settings.BatPresetIndex;
+   settings.Presets.RemoveAt(index);
+   settings.SelectedPreset=selected==index?Math.Max(0,settings.Presets.FindIndex(p=>p.Engine==preset.Engine&&!string.IsNullOrEmpty(p.FactoryId))):Math.Clamp(selected-(selected>index?1:0),0,settings.Presets.Count-1);
+   settings.BatPresetIndex=bat==index?-1:bat>index?bat-1:bat;
+  }
   public static string EngineName(Engine engine)=>engine==Engine.CPU?"CPU":engine==Engine.NVEncC?"NVIDIA":engine==Engine.VCEEncC?"AMD":"Intel QSV";
   public static string ResolutionName(Preset p)=>p.Width==0&&p.Height==0?"解像度を維持":p.Width+" × "+p.Height;
   public static string FilterName(Deinterlace d)=>d==Deinterlace.None?"解除なし":d==Deinterlace.Yadif?"Yadif・標準":d==Deinterlace.YadifBob?"Yadif・なめらか":d==Deinterlace.Bwdif?"Bwdif・標準":"Bwdif・なめらか";

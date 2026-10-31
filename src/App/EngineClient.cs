@@ -28,4 +28,5 @@ sealed class EngineClient {
  public void SavePreset(Preset preset) {
   Commands.Validate(preset);preset.FactoryId="";preset.Category="カスタム";Settings.Presets.Add(preset);Settings.SelectedPreset=Settings.Presets.Count-1;Save();
  }
+ public void DeletePreset(Preset preset){PresetCatalog.DeleteCustom(Settings,preset);Save();}
 }

@@ -75,10 +75,11 @@ namespace TsEncodeFlow {
    var args=new[]{"-hide_banner","-nostdin","-y","-i",j.Input,"-map","0:"+j.Metadata.SubtitleIndex,"-c:s","srt",subtitle};
    var extraction=await Processes.Run(s.Ffmpeg,args,token,log);if(extraction.ExitCode!=0)throw new InvalidDataException("字幕をテキスト化できません。この字幕形式に対応したFFmpegが必要です。");return new FileInfo(subtitle).Length>0?subtitle:null;
   }
-  public static Command Mux(Settings s,Preset p,Metadata m,string video,string subtitle,string output) {
+  public static Command Mux(Settings s,Preset p,Metadata m,string video,string subtitle,string output,string chapterFile=null) {
    var c=new Command {Exe=s.Ffmpeg};var a=c.Args;a.AddRange(new[]{"-hide_banner","-nostdin","-y","-i",video});
-   if(subtitle!=null)a.AddRange(new[]{"-i",subtitle});a.AddRange(new[]{"-map","0:v:0","-map","0:a?","-c:v","copy","-c:a","copy","-map_metadata","-1"});
+   if(subtitle!=null)a.AddRange(new[]{"-i",subtitle});if(chapterFile!=null)a.AddRange(new[]{"-f","ffmetadata","-i",chapterFile});a.AddRange(new[]{"-map","0:v:0","-map","0:a?","-c:v","copy","-c:a","copy","-map_metadata","-1"});
    if(subtitle!=null)a.AddRange(new[]{"-map","1:0","-c:s",p.Container==Container.mp4?"mov_text":"ass","-metadata:s:s:0","language=jpn","-metadata:s:s:0","title=日本語","-disposition:s:0","0"});
+   if(chapterFile!=null)a.AddRange(new[]{"-map_chapters",subtitle==null?"1":"2"});
    if(p.EmbedMetadata) {
     var date=new DateTimeOffset(DateTime.SpecifyKind(m.Start,DateTimeKind.Unspecified),TimeSpan.FromHours(9));
     foreach(var item in new Dictionary<string,string>{{"title",m.Title},{"show",m.Title},{"network",m.Channel},{"description",m.Description},{"comment",m.Channel+" / "+m.Start.ToString("yyyy/MM/dd HH:mm")+"\n"+m.Description},{"date",m.Start.ToString("yyyy-MM-dd")},{"creation_time",date.ToUniversalTime().ToString("O")},{"episode_id",m.Episode},{"service_id",m.ServiceId.ToString()},{"event_id",m.EventId.ToString()}})if(!string.IsNullOrEmpty(item.Value))a.AddRange(new[]{"-metadata",item.Key+"="+item.Value});
@@ -88,10 +89,10 @@ namespace TsEncodeFlow {
   }
   public static async Task<string> Pack(Job j,Settings s,string video,string subtitle,string output,CancellationToken token,Action<string> log,Func<Command,Task<ProcessResult>> run=null) {
    run??=c=>Processes.Run(c.Exe,c.Args,token,log);
-   var command=Mux(s,j.Preset,j.Metadata,video,subtitle,output);log(command.ToString());var packed=await run(command);
+   var command=Mux(s,j.Preset,j.Metadata,video,subtitle,output,j.Preset.CmMode==CmMode.Off?null:j.Commercials?.ChapterFile);log(command.ToString());var packed=await run(command);
    if(packed.ExitCode!=0&&subtitle!=null&&j.Preset.IgnoreSubtitleErrors) {
     token.ThrowIfCancellationRequested();Warning(j,"字幕の格納に失敗したため、字幕なしで格納し直します。",log);j.Metadata.SubtitleStatus="字幕格納エラーを無視して字幕なしで続行";
-    subtitle=null;command=Mux(s,j.Preset,j.Metadata,video,null,output);log(command.ToString());packed=await run(command);
+    subtitle=null;command=Mux(s,j.Preset,j.Metadata,video,null,output,j.Preset.CmMode==CmMode.Off?null:j.Commercials?.ChapterFile);log(command.ToString());packed=await run(command);
    }
    if(packed.ExitCode!=0)throw new InvalidDataException("字幕・メタデータの格納失敗："+Converter.Tail(packed.Error));
    return subtitle;

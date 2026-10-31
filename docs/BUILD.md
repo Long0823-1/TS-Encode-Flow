@@ -51,13 +51,22 @@ dotnet run --project tests/Tests.csproj -c Release -- --live --vce C:/Tools/VCEE
 
 1. Appの `.csproj` のVersion・ApplicationDisplayVersion・ApplicationVersionと、WorkerのVersionを更新します。画面の版表記・READMEも更新します。
 2. ビルド・必要な回帰テストを行い、配布フォルダーを全体ごとZIPにします。
-3. ソースをmainへpushし、対応するコミットを対象に `v0.2.6` のような正式版タグでGitHub Releaseを作成します。Windows x64用ZIPを添付し、Latestに設定します。
+3. ソースをmainへpushし、対応するコミットを対象に `v0.3.1` のような正式版タグでGitHub Releaseを作成します。Windows x64用ZIPを添付し、Latestに設定します。
 4. Releasesの内容と配布物を確認します。起動中の旧版アプリでは、次の更新確認から通知されます。
 
 正式版の例（バージョン、ZIP、notesのファイルは実際の内容に置き換え）：
 
 ```powershell
-gh release create v0.2.6 ./TS-Encode-Flow-v0.2.6-windows-x64.zip --repo Long0823-1/TS-Encode-Flow --target main --title "v0.2.6" --notes-file ./release-notes.md --latest
+gh release create v0.3.1 ./TS-Encode-Flow-v0.3.1-windows-x64.zip --repo Long0823-1/TS-Encode-Flow --target main --title "v0.3.1" --notes-file ./release-notes.md --latest
 ```
 
 コミットのpushだけでは通知しません。ドラフトやプレリリースも対象外です。確認APIは [GitHub Releases API](https://docs.github.com/en/rest/releases/releases#get-the-latest-release) を使用します。
+
+CM処理の検証：
+
+```powershell
+dotnet run --project tests/Tests.csproj -c Release -- --cm-live
+dotnet run --project tests/Tests.csproj -c Release -- --cm-live --vce C:/Tools/VCEEncC64.exe
+```
+
+Comskip呼び出しの自動テストはプロトコル用スタブを使用します。実Comskipによる放送CMの判定精度を保証するものではありません。

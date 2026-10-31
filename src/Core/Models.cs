@@ -13,7 +13,7 @@ namespace TsEncodeFlow {
  public enum Container { mp4, mkv }
  public enum RateMode { Quality, VBR, CBR }
  public enum Deinterlace { None, Yadif, YadifBob, Bwdif, BwdifBob }
- public enum State { Waiting, Running, Completed, Failed, Cancelled, Interrupted, NeedsInput }
+ public enum State { Waiting, Running, Completed, Failed, Cancelled, Interrupted, NeedsInput, NeedsCmReview }
  [TypeConverter(typeof(ExpandableObjectConverter))]
  public sealed class Preset {
   [Browsable(false)] public string FactoryId {get;set;}="";
@@ -49,6 +49,10 @@ namespace TsEncodeFlow {
   public bool Denoise {get;set;}=false;
   [Category("3. フィルタ"),DisplayName("シャープ化")] public bool Sharpen {get;set;}=false;
   public bool KeepSubtitles {get;set;}=true;
+  public CmMode CmMode {get;set;}=CmMode.Off;
+  public CmSource CmSource {get;set;}=CmSource.Sidecar;
+  public bool CmReview {get;set;}=true;
+  public string CmTrimFps {get;set;}="";
   public bool IgnoreSubtitleErrors {get;set;}=false;
   public bool EmbedMetadata {get;set;}=true;
   [Category("4. 音声"),DisplayName("音声をコピー"),Description("false=AACに変換。最初の選択サービス内の音声1本を対象にします。")]
@@ -77,6 +81,8 @@ namespace TsEncodeFlow {
   [Category("3. ツール"),DisplayName("QSVEncC64.exe")] public string Qsvenc {get;set;}="";
   [Category("3. ツール"),DisplayName("EDCB EpgDataCap3.dll"),Description("任意。TSのEIT/SDTを日本語にデコードするEDCB x64のDLL。未指定でも.program.txtを利用できます。")]
   public string EpgDll {get;set;}="";
+  public string Comskip {get;set;}="";
+  public string ComskipIni {get;set;}="";
   [Browsable(false)] public string CaptionTool {get;set;}="";
   [Browsable(false)] public List<Preset> Presets {get;set;}=PresetCatalog.Create();
   [Browsable(false)] public int SelectedPreset {get;set;}=0;
@@ -92,12 +98,12 @@ namespace TsEncodeFlow {
  public sealed class Metadata {
   public string Title="",Channel="",Description="",Episode="",Source="",OriginalName="";
   public DateTime Start;
-  public int ServiceId,EventId,NetworkId,TransportId,Width,Height,VideoIndex,AudioIndex=-1,SubtitleIndex=-1,SubtitlePid=-1;
+  public int ServiceId,EventId,NetworkId,TransportId,Width,Height,VideoIndex,AudioIndex=-1,SubtitleIndex=-1,SubtitlePid=-1,VideoPid=-1;
   public string SubtitleCodec="";
   public string SubtitleStatus="";
   public string SubtitleWarning="";
   public long SubtitlePackets;
-  public double Sar=1,Duration,Fps,VideoStart;
+  public double Sar=1,Duration,Fps,VideoStart,AudioStart;
  }
  public sealed class Job {
   public string Id=Guid.NewGuid().ToString("N"),Input,Output="",Fingerprint,Message="",LogFile="",Command="";
@@ -107,6 +113,7 @@ namespace TsEncodeFlow {
   public Preset Preset;
   public string OutputFolder,FileName;
   public Metadata Metadata;
+  public CmPlan Commercials;
   public List<DrcsGlyph> Glyphs=new List<DrcsGlyph>();
  }
  public static class Store {

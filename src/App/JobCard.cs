@@ -8,13 +8,14 @@ sealed class JobRow:INotifyPropertyChanged {
  public string Id=>Job.Id;
  public string Title=>Job.Metadata?.Title??Path.GetFileName(Job.Input);
  public string Detail=>PresetCatalog.EngineName(Job.Preset.Engine)+" · "+Job.Preset.Codec+" · "+Job.Preset.Container+" · "+PresetCatalog.ResolutionName(Job.Preset);
- public string Status=>Job.State switch {State.Waiting=>"終了待ち",State.Running=>"変換中",State.Completed=>"完了",State.Failed=>"失敗",State.Cancelled=>"中止",State.NeedsInput=>"DRCS入力待ち",_=>"中断"};
+ public string Status=>Job.State switch {State.Waiting=>"終了待ち",State.Running=>"変換中",State.Completed=>"完了",State.Failed=>"失敗",State.Cancelled=>"中止",State.NeedsInput=>"DRCS入力待ち",State.NeedsCmReview=>"CM確認待ち",_=>"中断"};
  public Color StatusColor=>Job.State==State.Failed?Color.FromArgb("#A6362B"):Job.State==State.Completed?Color.FromArgb("#167349"):Pixel.Blue;
  public string Message=>Job.Message;
  public double Progress=>Job.Progress/100;
  public string Percent=>Job.Progress.ToString("0")+"%";
  public bool CanCancel=>Job.State==State.Waiting||Job.State==State.Running;
  public bool CanRetry=>Job.State==State.Failed||Job.State==State.Cancelled||Job.State==State.Interrupted||Job.State==State.NeedsInput;
+ public bool CanReviewCm=>Job.Commercials!=null;
  public bool CanIgnoreSubtitles=>CanRetry&&Job.Preset.KeepSubtitles;
  public bool CanOpen=>!string.IsNullOrEmpty(Job.Output);
  public JobRow(Job j){Job=j;}
@@ -33,9 +34,10 @@ sealed class JobCard:ContentView {
   var cancel=Pixel.Button("中止",()=>{if(BindingContext is JobRow row)client.Send("cancel",row.Id);});cancel.SetBinding(IsVisibleProperty,nameof(JobRow.CanCancel));
   var retry=Pixel.Button("再試行",()=>{if(BindingContext is JobRow row)client.Send("retry",row.Id);});retry.SetBinding(IsVisibleProperty,nameof(JobRow.CanRetry));
   var ignore=Pixel.Button("字幕の問題を無視して再試行",()=>{if(BindingContext is JobRow row)client.Send("retry-ignore-subtitles",row.Id);});ignore.SetBinding(IsVisibleProperty,nameof(JobRow.CanIgnoreSubtitles));
+  var review=Pixel.Button("CM・タイムリストを確認",async()=>{var page=new ContentPage {Title="CM・タイムリスト",Content=new CommercialView(client,_=>{})};await Application.Current!.Windows[0].Page!.Navigation.PushAsync(page);});review.SetBinding(IsVisibleProperty,nameof(JobRow.CanReviewCm));
   var open=Pixel.Button("出力先",()=>{if(BindingContext is JobRow row)Pickers.Open(Path.GetDirectoryName(row.Job.Output)!);});open.SetBinding(IsVisibleProperty,nameof(JobRow.CanOpen));
   var info=Pixel.Button("詳細",async()=>{if(BindingContext is JobRow row)await Details(row.Job);});
-  Content=Pixel.Card(Pixel.Stack(top,detail,progress,Pixel.Row(percent,cancel,retry,open,info),ignore,message));Margin=new Thickness(0,0,0,14);
+  Content=Pixel.Card(Pixel.Stack(top,detail,progress,Pixel.Row(percent,cancel,retry,open,info),ignore,review,message));Margin=new Thickness(0,0,0,14);
  }
  static async Task Details(Job j) {
   string data="入力："+j.Input+"\n出力："+j.Output+"\n\n"+j.Message+"\n字幕の警告："+j.Metadata?.SubtitleWarning+"\n\n情報元："+j.Metadata?.Source+"\n番組開始："+j.Metadata?.Start+"\n局名："+j.Metadata?.Channel+"\n\n"+j.Command;

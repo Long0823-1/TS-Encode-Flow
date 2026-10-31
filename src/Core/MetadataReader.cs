@@ -37,7 +37,8 @@ namespace TsEncodeFlow {
    var subtitle=streams.FirstOrDefault(s=>Text(s,"codec_type")=="subtitle");
    var m=new Metadata {OriginalName=Path.GetFileNameWithoutExtension(file),Start=File.GetLastWriteTime(file),Width=Int(video,"width"),Height=Int(video,"height"),VideoIndex=Int(video,"index"),AudioIndex=audio==null?-1:Int(audio,"index"),ServiceId=program==null?0:Int(program,"program_id"),Sar=Ratio(Text(video,"sample_aspect_ratio","1:1")),Fps=Ratio(Text(video,"r_frame_rate")),Duration=Number(Text(video,"duration")),Source="ファイル名・更新時刻（番組日時が取得できない場合の代替）"};
    if(m.Sar<=0||double.IsNaN(m.Sar)||double.IsInfinity(m.Sar))m.Sar=1;
-   m.VideoStart=Number(Text(video,"start_time"));
+   m.VideoStart=Number(Text(video,"start_time"));m.AudioStart=audio==null?m.VideoStart:Number(Text(audio,"start_time"));
+   string videoPid=Text(video,"id");if(videoPid.StartsWith("0x")&&int.TryParse(videoPid.Substring(2),NumberStyles.HexNumber,CultureInfo.InvariantCulture,out int pidValue))m.VideoPid=pidValue;
    if(subtitle!=null){m.SubtitleIndex=Int(subtitle,"index");m.SubtitleCodec=Text(subtitle,"codec_name");string pid=Text(subtitle,"id");try{m.SubtitlePid=pid.StartsWith("0x")?Convert.ToInt32(pid.Substring(2),16):int.Parse(pid);}catch(FormatException){}}
    if(m.Duration<=0)m.Duration=Number(Text(Obj(data.ContainsKey("format")?data["format"]:null),"duration"));
    if(File.Exists(settings.EpgDll))try {NativeEpg.Fill(file,settings.EpgDll,m,token);log("TS番組情報："+m.Title+" / "+m.Channel);}catch(Exception e){log("TS番組情報を取得できません："+e.Message);}

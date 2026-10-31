@@ -46,6 +46,7 @@ static partial class Tests {
   }
  }
  [STAThread]static int Main(string[] args) {
+  if(args.Length>0&&args[0]=="--ini"&&args.Contains("--output-filename")){string output=args[Array.IndexOf(args,"--output")+1];Directory.CreateDirectory(output);File.WriteAllText(Path.Combine(output,"analysis.edl"),"5 10 0\n");return 0;}
   string root=Path.Combine(Path.GetTempPath(),"TS-Encode-Flow-tests-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(root);
   try {
    foreach(string arg in new[]{"abc","日本語 & test","C:\\path with spaces\\","quote\"test","","C:\\a\\\"b"})Check(Processes.Split(Processes.Quote(arg)).Single()==arg,"Windows argument roundtrip: "+arg);
@@ -73,6 +74,8 @@ static partial class Tests {
     Check(File.Exists(retryInput)&&cancelledJob.State==State.Cancelled,"retry preserves original TS and cancellation history");
    }
    BackgroundAndSubtitles(root).GetAwaiter().GetResult();
+   CmTests(root).GetAwaiter().GetResult();
+   if(args.Contains("--cm-live"))CmLive(root,args).GetAwaiter().GetResult();
    UpdateTests().GetAwaiter().GetResult();
    if(args.Contains("--updates-live"))UpdateLive().GetAwaiter().GetResult();
    if(args.Contains("--live"))Live(root,args).GetAwaiter().GetResult();

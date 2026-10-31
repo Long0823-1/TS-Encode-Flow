@@ -45,7 +45,7 @@ namespace TsEncodeFlow {
     Store.Save(Path.Combine(inbox,Guid.NewGuid().ToString("N")+".json"),new Request {Path=full,Profile=profile});
    }
   }
-  public sealed class Request {public string Path;public string Action="enqueue",JobId;public BatchProfile Profile;}
+  public sealed class Request {public string Path;public string Action="enqueue",JobId;public BatchProfile Profile;public List<TimeRange> CmCuts;public CmMode CmMode;public string Fingerprint;}
   bool Stable(string file) {
    if(!File.Exists(file))return false;string fingerprint=Store.Fingerprint(file);Tuple<string,DateTime> old;
    if(!observed.TryGetValue(file,out old)||old.Item1!=fingerprint){observed[file]=Tuple.Create(fingerprint,DateTime.UtcNow);return false;}
@@ -54,7 +54,7 @@ namespace TsEncodeFlow {
   public void Tick() {
    foreach(string request in Directory.EnumerateFiles(Path.Combine(DataFolder,"Inbox"),"*.json").Take(100))try {
     var value=Store.Load<Request>(request,()=>new Request());
-    if(value.Action=="shutdown"){StopRequested=true;Paused=true;}else if(value.Action=="retry-ignore-subtitles")Retry(value.JobId,true);else if(value.Action=="cancel")Cancel(value.JobId);else if(value.Action=="retry")Retry(value.JobId);else if(value.Action=="pause")Paused=true;else if(value.Action=="resume")Paused=false;else {var added=Enqueue(value.Path,false,value.Profile?.Preset,value.Profile?.OutputFolder,value.Profile?.FileName);if(added==null)Notice?.Invoke("同じTSはすでに待機中または変換中です。キューを確認してください。");}
+    if(value.Action=="approve-cm")ApproveCm(value);else if(value.Action=="shutdown"){StopRequested=true;Paused=true;}else if(value.Action=="retry-ignore-subtitles")Retry(value.JobId,true);else if(value.Action=="cancel")Cancel(value.JobId);else if(value.Action=="retry")Retry(value.JobId);else if(value.Action=="pause")Paused=true;else if(value.Action=="resume")Paused=false;else {var added=Enqueue(value.Path,false,value.Profile?.Preset,value.Profile?.OutputFolder,value.Profile?.FileName);if(added==null)Notice?.Invoke("同じTSはすでに待機中または変換中です。キューを確認してください。");}
     File.Delete(request);
    }catch(Exception e){Notice?.Invoke("追加失敗："+e.Message);try{File.Move(request,request+".error");}catch(IOException){}}
    if(Settings.WatchEnabled&&(DateTime.UtcNow-lastScan).TotalSeconds>=3) {
@@ -79,6 +79,7 @@ namespace TsEncodeFlow {
      object logGate=new object();Directory.CreateDirectory(Path.GetDirectoryName(j.LogFile));
      Action<string> log=line=>{lock(logGate)File.AppendAllText(j.LogFile,DateTime.Now.ToString("HH:mm:ss ")+line+Environment.NewLine,Encoding.UTF8);};
      try{await Converter.Convert(j,config,cancellation.Token,log,Save);j.State=State.Completed;}
+     catch(CmReviewException e){j.State=State.NeedsCmReview;j.Message=e.Message;log(j.Message);}
      catch(DrcsPendingException e){j.State=State.NeedsInput;j.Message=e.Message;log(j.Message);}
      catch(OperationCanceledException){j.State=State.Cancelled;j.Message="中止しました（元TSを保持）。";log(j.Message);}
      catch(Exception e){j.State=State.Failed;j.Message=e.Message;log(e.ToString());}
@@ -88,6 +89,9 @@ namespace TsEncodeFlow {
   }
   public void Cancel(string id) {
    lock(gate){CancellationTokenSource source;if(active.TryGetValue(id,out source))source.Cancel();else{var j=Jobs.FirstOrDefault(x=>x.Id==id);if(j!=null&&j.State==State.Waiting){j.State=State.Cancelled;j.Message="待機を中止しました。";}}Save();}
+  }
+  public void ApproveCm(Request request) {
+   lock(gate){var j=Jobs.FirstOrDefault(x=>x.Id==request.JobId);if(j==null||active.ContainsKey(j.Id)||j.State==State.Completed)throw new ArgumentException("処理中・完了済みのジョブは変更できません。");if(j.Metadata==null||Store.Fingerprint(j.Input)!=request.Fingerprint)throw new ArgumentException("入力が更新されています。再解析してください。");if(request.CmMode!=CmMode.Cut&&request.CmMode!=CmMode.Chapters)throw new ArgumentException("CM出力方式を選んでください。");var p=Store.Clone(j.Preset);p.CmMode=request.CmMode;if(p.CmMode==CmMode.Cut){p.CopyAudio=false;p.Fps="";}Commands.Validate(p);var plan=Commercials.Build(request.CmCuts??new List<TimeRange>(),j.Metadata.Duration,j.Metadata.Fps,request.Fingerprint,"確認・修正済み");if(p.CmMode==CmMode.Cut&&plan.Keep.Count==0)throw new ArgumentException("本編を残してください。");plan.Approved=plan.Reviewed=true;j.Commercials=plan;j.Preset=p;j.State=State.Waiting;j.Progress=0;j.Message="CM区間を確定しました。再開待ち";Save();}
   }
   public void Retry(string id,bool ignoreSubtitleErrors=false) {
    lock(gate){var j=Jobs.FirstOrDefault(x=>x.Id==id);if(j!=null&&(j.State==State.Failed||j.State==State.Cancelled||j.State==State.Interrupted||j.State==State.NeedsInput)){if(ignoreSubtitleErrors)j.Preset.IgnoreSubtitleErrors=true;j.State=State.Waiting;j.Message="再試行待ち";j.Progress=0;Save();}}

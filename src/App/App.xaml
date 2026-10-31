@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Application xmlns="http://schemas.microsoft.com/dotnet/2021/maui" xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml" x:Class="EncodeFlow.App.App">
+ <Application.Resources>
+  <Style TargetType="Label"><Setter Property="TextColor" Value="#1D252F"/><Setter Property="FontFamily" Value="Segoe UI"/><Setter Property="FontSize" Value="14"/></Style>
+  <Style TargetType="Button"><Setter Property="FontFamily" Value="Segoe UI"/><Setter Property="FontSize" Value="14"/><Setter Property="CornerRadius" Value="24"/><Setter Property="MinimumHeightRequest" Value="46"/><Setter Property="Padding" Value="22,10"/><Setter Property="BackgroundColor" Value="#D3E3FD"/><Setter Property="TextColor" Value="#163E77"/></Style>
+  <Style TargetType="Entry"><Setter Property="TextColor" Value="#1D252F"/><Setter Property="PlaceholderColor" Value="#647181"/><Setter Property="BackgroundColor" Value="#F0F3F8"/><Setter Property="MinimumHeightRequest" Value="44"/></Style>
+  <Style TargetType="Picker"><Setter Property="TextColor" Value="#1D252F"/><Setter Property="TitleColor" Value="#647181"/><Setter Property="BackgroundColor" Value="#F0F3F8"/><Setter Property="MinimumHeightRequest" Value="44"/></Style>
+  <Style TargetType="Switch"><Setter Property="OnColor" Value="#3871CF"/><Setter Property="ThumbColor" Value="#FFFFFF"/></Style>
+  <Style TargetType="ContentPage" ApplyToDerivedTypes="True"><Setter Property="BackgroundColor" Value="#F6F8FC"/></Style>
+ </Application.Resources>
+</Application>

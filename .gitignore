@@ -1,0 +1,16 @@
+**/bin/
+**/obj/
+build/
+.vs/
+Tools/
+*.user
+*.ts
+*.mp4
+*.mkv
+.local/
+.deps/
+*.bmp
+*.encode.json
+src/App/Resources/Fonts/
+src/App/Resources/Images/
+src/App/Resources/Raw/

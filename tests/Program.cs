@@ -72,6 +72,8 @@ static partial class Tests {
     replacement.State=State.Completed;QueueManager.Submit(retryData,new[]{retryInput});retryQueue.Tick();Check(retryQueue.Jobs.Count==3,"UI inbox accepts intentional repeat after completion");
     Check(File.Exists(retryInput)&&cancelledJob.State==State.Cancelled,"retry preserves original TS and cancellation history");
    }
+   UpdateTests().GetAwaiter().GetResult();
+   if(args.Contains("--updates-live"))UpdateLive().GetAwaiter().GetResult();
    if(args.Contains("--live"))Live(root,args).GetAwaiter().GetResult();
    if(args.Contains("--features"))Features(root,args).GetAwaiter().GetResult();
    if(args.Contains("--real"))Real(root,args).GetAwaiter().GetResult();

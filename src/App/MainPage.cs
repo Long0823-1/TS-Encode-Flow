@@ -10,6 +10,20 @@ sealed class MainPage:ContentPage {
  Button? healthButton;
  string section="ダッシュボード";bool refreshing;DateTime lastWake=DateTime.MinValue;
  readonly ObservableCollection<JobRow> rows=[];
+ readonly Label updateText=Pixel.Text("",14,Pixel.Blue,true);
+ readonly ContentView updateBanner=new(){IsVisible=false};
+ static readonly System.Net.Http.HttpClient updateHttp=new();
+ bool updateChecking,updateStarted;
+ async Task<string> CheckUpdates() {
+  if(updateChecking)return "更新情報を確認中です。";
+  updateChecking=true;
+  try {
+   var version=typeof(MainPage).Assembly.GetName().Version??new Version(0,0,0);
+   var result=await Updates.Check(updateHttp,version);
+   if(result.Available){updateText.Text=result.Message;updateBanner.IsVisible=true;}
+   return result.Message;
+  }finally{updateChecking=false;}
+ }
  public MainPage() {
   try{client=new EngineClient();}catch(Exception e){Content=Pixel.Stack(Pixel.Text("設定を読み込めませんでした",24),Pixel.Text(e.Message));return;}
   var root=new Grid {ColumnDefinitions=new ColumnDefinitionCollection {new(216),new(GridLength.Star)},ColumnSpacing=24,Padding=new Thickness(20,20,28,16)};
@@ -20,12 +34,13 @@ sealed class MainPage:ContentPage {
   foreach(var item in new[]{("ダッシュボード","◉"),("変換キュー","☷"),("プリセット","◈"),("字幕・DRCS","文"),("自動化","↻"),("設定","⚙")}) {
    string name=item.Item1;var button=Pixel.Button(item.Item2+"   "+name,()=>Navigate(name));button.HorizontalOptions=LayoutOptions.Fill;button.Padding=new Thickness(18,14);nav[name]=button;links.Children.Add(button);
   }
-  rail.Add(links,0,1);rail.Add(Pixel.Stack(Pixel.Text("元のTSはそのまま",13,Pixel.Muted,true),Pixel.Text("0.2.3 · .NET MAUI",12,Pixel.Muted),Pixel.Button("Ko-fiで開発を応援",()=>Pickers.Open("https://ko-fi.com/long0823"))),0,2);root.Add(rail,0,0);
-  var main=new Grid {RowDefinitions=new RowDefinitionCollection {new(88),new(GridLength.Star),new(34)},RowSpacing=12};
-  var heading=new Grid {ColumnDefinitions=new ColumnDefinitionCollection {new(GridLength.Star),new(GridLength.Auto)}};heading.Add(Pixel.Stack(title,subtitle),0,0);heading.Add(Pixel.Button("＋ TSを追加",AddFiles,true),1,0);main.Add(heading,0,0);main.Add(body,0,1);main.Add(toast,0,2);root.Add(main,1,0);Content=root;
+  rail.Add(links,0,1);rail.Add(Pixel.Stack(Pixel.Text("元のTSはそのまま",13,Pixel.Muted,true),Pixel.Text("0.2.4 · .NET MAUI",12,Pixel.Muted),Pixel.Button("Ko-fiで開発を応援",()=>Pickers.Open("https://ko-fi.com/long0823"))),0,2);root.Add(rail,0,0);
+  var main=new Grid {RowDefinitions=new RowDefinitionCollection {new(88),new(GridLength.Auto),new(GridLength.Star),new(34)},RowSpacing=12};
+  var heading=new Grid {ColumnDefinitions=new ColumnDefinitionCollection {new(GridLength.Star),new(GridLength.Auto)}};heading.Add(Pixel.Stack(title,subtitle),0,0);heading.Add(Pixel.Button("＋ TSを追加",AddFiles,true),1,0);main.Add(heading,0,0);updateBanner.Content=Pixel.Card(Pixel.Stack(updateText,Pixel.Button("更新内容・ダウンロードを開く",()=>Pickers.Open(Updates.ReleasesUrl),true)),Pixel.Tint,16);main.Add(updateBanner,0,1);main.Add(body,0,2);main.Add(toast,0,3);root.Add(main,1,0);Content=root;
   Navigate(section);
   Dispatcher.StartTimer(TimeSpan.FromSeconds(1),()=>{Refresh();return true;});
-  Loaded+=(s,e)=>Refresh();
+    Loaded+=async(s,e)=>{Refresh();if(!updateStarted){updateStarted=true;await CheckUpdates();}};
+  Dispatcher.StartTimer(TimeSpan.FromHours(6),()=>{_ = CheckUpdates();return true;});
  }
  async Task AddFiles(){var files=await Pickers.Files();if(files.Count>0){int n=client.Add(files);Notice(n+"本を追加しました。録画中のファイルは終了まで待機します。");Refresh();}}
  async Task AddFolder(){var folder=await Pickers.Folder();if(folder!=null){int n=client.Add(Directory.EnumerateFiles(folder,"*.ts"));Notice(n+"本を追加しました。");Refresh();}}
@@ -34,7 +49,7 @@ sealed class MainPage:ContentPage {
   if(section==name&&body.Content!=null){Refresh();return;}
   section=name;title.Text=name;subtitle.Text=name switch {"ダッシュボード"=>"録画から変換まで、ひとつの流れに。","変換キュー"=>"進捗と結果を、ここでまとめて確認。","プリセット"=>"見るものに合わせて、ちょうどいい画質を。","字幕・DRCS"=>"字形と写真を見比べて、読めない文字を補正。","自動化"=>"録画が終わったら、あとはおまかせ。",_=>"必要なツールと、保存先を整えます。"};
   foreach(var item in nav){bool chosen=item.Key==name;item.Value.BackgroundColor=chosen?Pixel.Tint:Colors.Transparent;item.Value.TextColor=chosen?Pixel.Blue:Pixel.Muted;}
-  body.Content=name switch {"ダッシュボード"=>Dashboard(),"変換キュー"=>Queue(),"プリセット"=>new PresetsView(client,Notice),"字幕・DRCS"=>new DrcsView(client,Notice),"自動化"=>new AutomationView(client,Notice),_=>new SettingsView(client,Notice)};Refresh();
+  body.Content=name switch {"ダッシュボード"=>Dashboard(),"変換キュー"=>Queue(),"プリセット"=>new PresetsView(client,Notice),"字幕・DRCS"=>new DrcsView(client,Notice),"自動化"=>new AutomationView(client,Notice),_=>new SettingsView(client,Notice,CheckUpdates)};Refresh();
  }
  View Dashboard() {
   // A MAUI view can belong to only one native parent. Each dashboard gets new controls.

@@ -10,7 +10,7 @@
 
 ## 取得とビルド
 
-非公開リポジトリを読めるGitHubアカウントで認証し、取得します。
+公開リポジトリを取得します。
 
 ```powershell
 git clone https://github.com/Long0823-1/TS-Encode-Flow.git
@@ -46,3 +46,18 @@ dotnet run --project tests/Tests.csproj -c Release -- --live --vce C:/Tools/VCEE
 ```
 
 テスト用TSや出力は一時フォルダーに作成されます。入力録画や個人の設定データをリポジトリに追加しないでください。検証済み環境と制限は[検証記録](VALIDATION.md)を参照してください。
+
+## 新しい版を配布する
+
+1. Appの `.csproj` のVersion・ApplicationDisplayVersion・ApplicationVersionと、WorkerのVersionを更新します。画面の版表記・READMEも更新します。
+2. ビルド・必要な回帰テストを行い、配布フォルダーを全体ごとZIPにします。
+3. ソースをmainへpushし、対応するコミットを対象に `v0.2.5` のような正式版タグでGitHub Releaseを作成します。Windows x64用ZIPを添付し、Latestに設定します。
+4. Releasesの内容と配布物を確認します。起動中の旧版アプリでは、次の更新確認から通知されます。
+
+正式版の例（バージョン、ZIP、notesのファイルは実際の内容に置き換え）：
+
+```powershell
+gh release create v0.2.5 ./TS-Encode-Flow-v0.2.5-windows-x64.zip --repo Long0823-1/TS-Encode-Flow --target main --title "v0.2.5" --notes-file ./release-notes.md --latest
+```
+
+コミットのpushだけでは通知しません。ドラフトやプレリリースも対象外です。確認APIは [GitHub Releases API](https://docs.github.com/en/rest/releases/releases#get-the-latest-release) を使用します。

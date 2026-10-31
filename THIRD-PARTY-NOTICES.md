@@ -18,10 +18,21 @@ Other upstream decoder files carry corresponding 2021 / 2022 notices by the same
 
 The self-contained release includes .NET, .NET MAUI, and Windows App SDK runtime components. Their licenses apply independently: [.NET runtime](https://github.com/dotnet/runtime/blob/main/LICENSE.TXT), [.NET MAUI](https://github.com/dotnet/maui/blob/main/LICENSE.TXT), [Windows App SDK](https://github.com/microsoft/WindowsAppSDK/blob/main/LICENSE). Runtime notices supplied by the SDK are retained in the release layout.
 
-## External tools (not included)
+## External tools obtained on request
 
-- [FFmpeg](https://ffmpeg.org/legal.html): LGPL / GPL depending on the selected build. Choose a build supporting the desired codecs and filters.
-- [NVEnc](https://github.com/rigaya/NVEnc), [VCEEnc](https://github.com/rigaya/VCEEnc), [QSVEnc](https://github.com/rigaya/QSVEnc): see each project's license and notices.
-- [EDCB / EpgDataCap3.dll](https://github.com/tsukumijima/EDCB): see EDCB's original freeware terms and per-file notices. This DLL is not included.
+The app downloads portable tools from their official release distributions and invokes them as separate processes. Their licenses remain independent. The tool setup screen shows the source, release version, archive SHA-256 and available upstream/bundled license documents. An upstream digest is compared when the release API provides one; the screen distinguishes computed-only hashes.
 
-The app does not download, relicense, or embed these external tools. It invokes tools selected by the user.
+- FFmpeg / ffprobe: GPL-enabled BtbN build. See https://ffmpeg.org/legal.html and the downloaded distribution license.
+- NVEncC, VCEEncC, QSVEncC: see each rigaya project's license file and included library notices.
+- EDCB / EpgDataCap3.dll: xtne6f/EDCB work-plus-s distribution; see its per-file licenses and notices. Do not assume all EDCB forks have identical terms.
+- 7-Zip portable extractor: LGPL and applicable component notices. https://www.7-zip.org/license.txt
+- chapter_exe: GPL-2.0; https://github.com/nekopanda/chapter_exe and https://github.com/rigaya/chapter_exe
+- join_logo_scp: GPL-2.0; https://github.com/nekopanda/join_logo_scp
+- AviSynth: GPL-2.0-or-later; https://github.com/nekopanda/AviSynthPlus
+- L-SMASH Works source plugin: ISC and the licenses of its linked dependencies, including FFmpeg; https://github.com/VFR-maniac/L-SMASH-Works
+
+The CM dependency downloader reads the rigaya/Amatsukaze distribution archive but retains only chapter_exe, join_logo_scp, AviSynth, L-SMASH source plugin, required runtime DLLs, JL scripts and legal/readme documents. It does not install or invoke AmatsukazeCLI, GUI, server, muxers or encoders. CM analysis is orchestrated by this app. No Amatsukaze application source is transplanted.
+
+## Standalone CM logo helper
+
+The optional separate logoframe executable is GPL-3.0. Copyright notices and the full license are retained in third_party/CmLogo. Its complete corresponding source, upstream revision and Windows build instructions are included in both this repository and the downloadable helper ZIP. This GPL code is compiled into a separate executable, not linked into the MAUI/Core/Worker assemblies. See third_party/CmLogo/README.md for the small info-only addition and scripts/build-cm-logo.ps1 for a reproducible build.

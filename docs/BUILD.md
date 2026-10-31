@@ -69,4 +69,6 @@ dotnet run --project tests/Tests.csproj -c Release -- --cm-live
 dotnet run --project tests/Tests.csproj -c Release -- --cm-live --vce C:/Tools/VCEEncC64.exe
 ```
 
-Comskip呼び出しの自動テストはプロトコル用スタブを使用します。実Comskipによる放送CMの判定精度を保証するものではありません。
+Comskipは廃止し、logoframe・chapter_exe・join_logo_scpを個別実行します。CM解析の実行ファイルとライブラリは設定画面から自動取得します。
+
+独立したlogoframeヘルパーをソースから再ビルドする場合は `./scripts/build-cm-logo.ps1` を実行します。対応する全ソースとGPL-3.0のライセンスは `third_party/CmLogo` にあります。このヘルパーはMAUI/Core/Workerへリンクしません。

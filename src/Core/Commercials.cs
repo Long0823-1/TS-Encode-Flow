@@ -10,11 +10,12 @@ using System.Threading.Tasks;
 
 namespace TsEncodeFlow {
  public enum CmMode { Off,Chapters,Cut }
- public enum CmSource { Sidecar,Comskip }
+ public enum CmSource { Sidecar,Comskip,Amatsukaze }
  public sealed class TimeRange {public double Start,End;public bool IsCommercial;}
  public sealed class CmPlan {
   public string Fingerprint="",Source="",ChapterFile="";
-  public bool Approved,Reviewed;
+  public bool Approved,Reviewed,HasVideoStart;
+  public double SourceVideoStart;
   public double Duration,Fps;
   public List<TimeRange> Segments=new();
   public List<TimeRange> Keep=>Segments.Where(x=>!x.IsCommercial).ToList();
@@ -55,7 +56,7 @@ namespace TsEncodeFlow {
     string remainder=Regex.Replace(text,@"Trim\s*\(\s*\d+\s*,\s*\d+\s*\)","",RegexOptions.IgnoreCase).Replace("++","").Trim();
     if(matches.Count==0||remainder.Length>0)throw new ArgumentException("Trim(start,end)++Trim(...) 形式だけを読み込めます。AVSは実行しません。");
     var kept=matches.Select(x=>new TimeRange {Start=double.Parse(x.Groups[1].Value,Inv)/fps,End=x.Groups[2].Value=="0"?m.Duration:(double.Parse(x.Groups[2].Value,Inv)+1)/fps}).OrderBy(x=>x.Start).ToList();
-    double cursor=0;foreach(var r in kept){if(r.Start<cursor||r.End<=r.Start||r.End>m.Duration+1/fps)throw new ArgumentException("Trim区間が重複、逆順、または範囲外です。FPSと入力映像を確認してください。");if(r.Start>cursor)cuts.Add(new TimeRange {Start=cursor,End=r.Start});cursor=Math.Min(r.End,m.Duration);}if(cursor<m.Duration)cuts.Add(new TimeRange {Start=cursor,End=m.Duration});
+    double cursor=0;foreach(var r in kept){if(r.Start<cursor||r.End<=r.Start||r.End>m.Duration+1/fps)throw new ArgumentException("Trim区間が重複、逆順、または範囲外です。FPSと入力映像を確認してください。");if(r.Start>cursor+0.000001)cuts.Add(new TimeRange {Start=cursor,End=r.Start});cursor=Math.Min(r.End,m.Duration);}if(cursor<m.Duration-0.000001)cuts.Add(new TimeRange {Start=cursor,End=m.Duration});
    }else {
     foreach(string line in text.Split('\n')){string clean=line.Trim().TrimStart('\uFEFF');if(clean.Length==0||clean.StartsWith("#"))continue;var values=Regex.Split(clean,@"\s+");if(values.Length<2||values.Length>3)throw new ArgumentException("EDLは「開始秒 終了秒 0」の形式です。");string action=values.Length==3?values[2]:"0";if(action=="1"||action=="2")continue;if(action!="0"&&action!="3")throw new ArgumentException("対応していないEDL操作です。");cuts.Add(new TimeRange {Start=ParseTime(values[0]),End=ParseTime(values[1])});}
    }
@@ -67,20 +68,16 @@ namespace TsEncodeFlow {
    string fingerprint=Store.Fingerprint(j.Input),folder=Folder(j,data);Directory.CreateDirectory(folder);
    if(j.Commercials==null||j.Commercials.Fingerprint!=fingerprint) {
     string file=new[]{j.Input+".edl",Path.ChangeExtension(j.Input,".edl"),j.Input+".trim.avs",Path.ChangeExtension(j.Input,".trim.avs")}.FirstOrDefault(File.Exists);
-    if(j.Preset.CmSource==CmSource.Comskip) {
-     if(!File.Exists(s.Comskip))throw new FileNotFoundException("Comskipを設定するか、区間ファイル・手動編集方式を選んでください。",s.Comskip);
-     string ini=string.IsNullOrWhiteSpace(s.ComskipIni)?"":File.ReadAllText(s.ComskipIni);
-     foreach(var item in new[]{("output_edl","1"),("edl_skip_field","0")}){string pattern=@"(?m)^\s*"+item.Item1+@"\s*=.*$";ini=Regex.IsMatch(ini,pattern)?Regex.Replace(ini,pattern,item.Item1+"="+item.Item2):ini+"\n"+item.Item1+"="+item.Item2;}
-     string config=Path.Combine(folder,"comskip.ini");File.WriteAllText(config,ini);
-     j.Message="ComskipでCM候補を解析中";changed();var args=new List<string>{"--ini",config,"--output",folder,"--output-filename","analysis"};if(j.Metadata.VideoPid>=0)args.AddRange(new[]{"--pid",j.Metadata.VideoPid.ToString("x",Inv)});args.Add(j.Input);
-     var result=await Processes.Run(s.Comskip,args,token,log);if(result.ExitCode!=0)throw new InvalidDataException("Comskip解析失敗：終了コード "+result.ExitCode);file=Path.Combine(folder,"analysis.edl");if(!File.Exists(file))throw new InvalidDataException("ComskipのEDLがありません。解析結果を確認してください。");
-    }
-    j.Commercials=file==null?Build(Array.Empty<TimeRange>(),j.Metadata.Duration,j.Metadata.Fps,fingerprint,"手動入力待ち"):Import(file,j.Metadata,j.Preset,fingerprint);
-    if(file==null&&!j.Preset.CmReview)throw new InvalidDataException("CM区間ファイルがありません。確認を有効にして手動入力するか、Comskipを設定してください。");
+    if(j.Preset.CmSource==CmSource.Comskip)throw new InvalidDataException("旧CM解析方式は廃止されました。プリセットでAmatsukaze方式を選択してください。");
+    if(j.Preset.CmSource==CmSource.Amatsukaze)j.Commercials=await CmAnalysis.Analyze(j,s,data,token,log,changed);
+    else j.Commercials=file==null?Build(Array.Empty<TimeRange>(),j.Metadata.Duration,j.Metadata.Fps,fingerprint,"手動入力待ち"):Import(file,j.Metadata,j.Preset,fingerprint);
+    if(file==null&&j.Preset.CmSource==CmSource.Sidecar&&!j.Preset.CmReview)throw new InvalidDataException("CM区間ファイルがありません。確認を有効にして手動入力するか、Amatsukaze方式を選択してください。");
     j.Commercials.Approved=!j.Preset.CmReview;changed();
    }
    // Revalidate persisted intervals rather than trusting a stale or edited queue file.
+   if(j.Commercials.HasVideoStart){j.Metadata.VideoStart=j.Commercials.SourceVideoStart;j.Metadata.Duration=j.Commercials.Duration;}
    var validated=Build(j.Commercials.Segments.Where(x=>x.IsCommercial),j.Metadata.Duration,j.Metadata.Fps,fingerprint,j.Commercials.Source);
+   validated.HasVideoStart=j.Commercials.HasVideoStart;validated.SourceVideoStart=j.Commercials.SourceVideoStart;
    validated.Approved=j.Commercials.Approved;validated.Reviewed=j.Commercials.Reviewed;j.Commercials=validated;
    if(!validated.Approved){changed();throw new CmReviewException("CM候補を確認してください。「CM・タイムリスト」で区間を修正・確定すると続行します。");}
    if(j.Preset.CmMode==CmMode.Cut&&validated.Keep.Count==0)throw new ArgumentException("全編がCMになっています。本編を1区間以上残してください。");
@@ -95,6 +92,12 @@ namespace TsEncodeFlow {
   public static List<TimeRange> Keep(Job j)=>j.Preset.CmMode==CmMode.Cut?j.Commercials?.Keep:null;
   public static double Duration(Job j)=>j.Preset.CmMode==CmMode.Cut&&j.Commercials!=null?j.Commercials.OutputDuration:j.Metadata.Duration;
   public static string HardwareTrim(List<TimeRange> keep,double fps)=>string.Join(",",keep.Select(r=>((long)Math.Round(r.Start*fps)).ToString(Inv)+":"+Math.Max((long)Math.Round(r.Start*fps),(long)Math.Round(r.End*fps)-1).ToString(Inv)));
+  public static string AudioFilter(List<TimeRange> keep,Metadata m) {
+   int n=keep.Count;var b=new StringBuilder("[0:"+m.AudioIndex+"]asetpts=PTS-STARTPTS+"+N(m.AudioStart-m.VideoStart)+"/TB,aresample=async=1:first_pts=0,asplit="+n);
+   for(int i=0;i<n;i++)b.Append("[ai").Append(i).Append(']');b.Append(';');
+   for(int i=0;i<n;i++)b.Append("[ai").Append(i).Append("]atrim=start=").Append(N(keep[i].Start)).Append(":end=").Append(N(keep[i].End)).Append(",asetpts=PTS-STARTPTS[a").Append(i).Append("];");
+   for(int i=0;i<n;i++)b.Append("[a").Append(i).Append(']');b.Append("concat=n=").Append(n).Append(":v=0:a=1,apad,atrim=duration=").Append(N(keep.Sum(x=>x.End-x.Start))).Append("[aout]");return b.ToString();
+  }
   public static string Filter(List<TimeRange> keep,Metadata m,string filters) {
    var b=new StringBuilder();int n=keep.Count;b.Append("[0:").Append(m.VideoIndex).Append("]setpts=PTS-STARTPTS,split=").Append(n);for(int i=0;i<n;i++)b.Append("[vi").Append(i).Append(']');b.Append(';');
    bool audio=m.AudioIndex>=0;if(audio){b.Append("[0:").Append(m.AudioIndex).Append("]asetpts=PTS-STARTPTS+").Append(N(m.AudioStart-m.VideoStart)).Append("/TB,aresample=async=1:first_pts=0,asplit=").Append(n);for(int i=0;i<n;i++)b.Append("[ai").Append(i).Append(']');b.Append(';');}

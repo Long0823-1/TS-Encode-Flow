@@ -34,7 +34,7 @@ sealed class MainPage:ContentPage {
   foreach(var item in new[]{("ダッシュボード","◉"),("変換キュー","☷"),("プリセット","◈"),("字幕・DRCS","文"),("CM・タイムリスト","▥"),("自動化","↻"),("設定","⚙")}) {
    string name=item.Item1;var button=Pixel.Button(item.Item2+"   "+name,()=>Navigate(name));button.HorizontalOptions=LayoutOptions.Fill;button.Padding=new Thickness(18,14);nav[name]=button;links.Children.Add(button);
   }
-  rail.Add(links,0,1);rail.Add(Pixel.Stack(Pixel.Text("元のTSはそのまま",13,Pixel.Muted,true),Pixel.Text("0.3.0 · .NET MAUI",12,Pixel.Muted),Pixel.Button("Ko-fiで開発を応援",()=>Pickers.Open("https://ko-fi.com/long0823"))),0,2);root.Add(rail,0,0);
+  rail.Add(links,0,1);rail.Add(Pixel.Stack(Pixel.Text("元のTSはそのまま",13,Pixel.Muted,true),Pixel.Text("0.4.0 · .NET MAUI",12,Pixel.Muted),Pixel.Button("Ko-fiで開発を応援",()=>Pickers.Open("https://ko-fi.com/long0823"))),0,2);root.Add(rail,0,0);
   var main=new Grid {RowDefinitions=new RowDefinitionCollection {new(88),new(GridLength.Auto),new(GridLength.Star),new(34)},RowSpacing=12};
   var heading=new Grid {ColumnDefinitions=new ColumnDefinitionCollection {new(GridLength.Star),new(GridLength.Auto)}};heading.Add(Pixel.Stack(title,subtitle),0,0);heading.Add(Pixel.Button("＋ TSを追加",AddFiles,true),1,0);main.Add(heading,0,0);updateBanner.Content=Pixel.Card(Pixel.Stack(updateText,Pixel.Button("更新内容・ダウンロードを開く",()=>Pickers.Open(Updates.ReleasesUrl),true)),Pixel.Tint,16);main.Add(updateBanner,0,1);main.Add(body,0,2);main.Add(toast,0,3);root.Add(main,1,0);Content=root;
   var launchArgs=Environment.GetCommandLineArgs();int pageIndex=Array.IndexOf(launchArgs,"--page");Navigate(pageIndex>=0&&pageIndex+1<launchArgs.Length&&nav.ContainsKey(launchArgs[pageIndex+1])?launchArgs[pageIndex+1]:section);
@@ -69,7 +69,7 @@ sealed class MainPage:ContentPage {
   var jobList=new CollectionView {ItemsSource=rows,SelectionMode=SelectionMode.None,ItemTemplate=new DataTemplate(()=>new JobCard(client)),EmptyView=Pixel.Card(Pixel.Stack(Pixel.Text("キューは空です",22),Pixel.Text("TSを追加するか、録画後BATから自動追加してください。",14,Pixel.Muted)))};
   var grid=new Grid {RowDefinitions=new RowDefinitionCollection {new(GridLength.Auto),new(GridLength.Star)},RowSpacing=20};
   var pause=Pixel.Button("新規開始を一時停止",()=>{client.Send("pause");Notice("実行中の変換は続け、新しい変換の開始を一時停止します。");});
-  grid.Add(Pixel.Row(Pixel.Button("処理を再開",()=>{client.Send("resume");Notice("変換を再開します。");},true),pause,Pixel.Button("出力先を開く",()=>{Directory.CreateDirectory(client.Settings.OutputFolder);Pickers.Open(client.Settings.OutputFolder);})),0,0);
+  grid.Add(Pixel.Row(Pixel.Button("処理を再開",()=>{client.Send("resume");Notice("変換を再開します。");},true),pause,Pixel.Button("履歴をクリア",()=>{client.Send("clear-history");Notice("完了・失敗・キャンセル・中断の履歴をクリアします。処理中・確認待ちは残ります。");}),Pixel.Button("出力先を開く",()=>{Directory.CreateDirectory(client.Settings.OutputFolder);Pickers.Open(client.Settings.OutputFolder);})),0,0);
   grid.Add(jobList,0,1);return grid;
  }
  void Refresh() {
@@ -82,6 +82,7 @@ sealed class MainPage:ContentPage {
    bool ready=File.Exists(client.Settings.Ffmpeg)&&File.Exists(client.Settings.Ffprobe)&&File.Exists(Pixel.EngineTool(client.Settings,client.Selected.Engine));
    health.Text=cmPending>0?"CM候補の確認待ちです。「CM・タイムリスト」で区間と出力方法を確定してください。":drcsPending>0?"未対応のDRCSが見つかりました。「字幕・DRCS」で画像を確認し、代替文字を登録してください。":ready?"必要な変換ツールが見つかりました。TSを追加してはじめられます。":"FFmpeg・ffprobeと、選択したエンコーダーのパスを確認してください。";
    if(healthButton!=null)healthButton.Text=cmPending>0?"CM・タイムリストを確認":drcsPending>0?"字幕・DRCSを確認":"ツールの設定を開く";
+   var ids=client.Jobs.Select(j=>j.Id).ToHashSet();foreach(var stale in rows.Where(r=>!ids.Contains(r.Id)).ToList())rows.Remove(stale);
    foreach(var j in client.Jobs.OrderByDescending(x=>x.Created)) {var row=rows.FirstOrDefault(x=>x.Id==j.Id);if(row==null)rows.Add(new JobRow(j));else row.Update(j);}
    if(!client.WorkerAlive&&!client.Status.Paused&&(client.Settings.WatchEnabled||client.Jobs.Any(j=>j.State==State.Waiting))&&(DateTime.UtcNow-lastWake).TotalSeconds>8){lastWake=DateTime.UtcNow;client.Wake();}
    if(!string.IsNullOrEmpty(client.Status.Message))toast.Text=client.Status.Message;

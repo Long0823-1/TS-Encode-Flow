@@ -32,7 +32,7 @@ namespace TsEncodeFlow {
    string desired=Path.GetFullPath(Path.Combine(root,relative));if(!desired.StartsWith(root.TrimEnd('\\')+"\\",StringComparison.OrdinalIgnoreCase))throw new ArgumentException("出力先が保存フォルダーの範囲外です。");
    if(desired.Length>200)throw new ArgumentException("出力パスが長すぎます。マクロや保存先を短くしてください。");
    Directory.CreateDirectory(Path.GetDirectoryName(desired));
-   string final=null,reserve=null,temp=null,selected=null,muxed=null;FileStream reservation=null;
+   string final=null,reserve=null,temp=null,selected=null,muxed=null,cutAudio=null,audioFilter=null,audioMux=null;FileStream reservation=null;
    try {
     for(int n=0;n<10000;n++) {
      string name=n==0?desired:Path.Combine(Path.GetDirectoryName(desired),Path.GetFileNameWithoutExtension(desired)+" ("+n+")"+Path.GetExtension(desired));
@@ -62,6 +62,15 @@ namespace TsEncodeFlow {
     j.Command=command.ToString();j.Message="変換中："+p.Engine;log(j.Command);changed();
     var encoded=await Processes.Run(command.Exe,command.Args,token,progress);
     if(encoded.ExitCode!=0)throw new InvalidDataException("変換失敗：終了コード"+encoded.ExitCode+"\n"+Tail(encoded.Error));
+    if(keep!=null&&p.Engine!=Engine.CPU&&j.Metadata.AudioIndex>=0) {
+     j.Message="CM区間に合わせて音声を再構成中";changed();
+     cutAudio=Path.Combine(Path.GetDirectoryName(final),".cut-audio-"+j.Id+".m4a");audioFilter=cutAudio+".filter";audioMux=Path.Combine(Path.GetDirectoryName(final),".cut-av-"+j.Id+Path.GetExtension(final));
+     File.WriteAllText(audioFilter,Commercials.AudioFilter(keep,j.Metadata));
+     var audio=await Processes.Run(s.Ffmpeg,new[]{"-hide_banner","-nostdin","-y","-i",j.Input,"-/filter_complex",audioFilter,"-map","[aout]","-c:a","aac","-b:a",p.AudioBitrate+"k",cutAudio},token,log);
+     if(audio.ExitCode!=0)throw new InvalidDataException("CM音声の処理に失敗しました。");
+     var combined=await Processes.Run(s.Ffmpeg,new[]{"-hide_banner","-nostdin","-y","-i",temp,"-i",cutAudio,"-map","0:v:0","-map","1:a:0","-c","copy","-map_metadata","-1","-map_chapters","-1",audioMux},token,log);
+     if(combined.ExitCode!=0)throw new InvalidDataException("CM映像と音声の結合に失敗しました。");File.Delete(temp);temp=audioMux;audioMux=null;
+    }
     if(p.EmbedMetadata||subtitle!=null||p.CmMode!=CmMode.Off) {
      j.Message="字幕・番組情報を動画に格納中";changed();muxed=Path.Combine(Path.GetDirectoryName(final),".mux-"+j.Id+Path.GetExtension(final));
      subtitle=await Subtitles.Pack(j,s,temp,subtitle,muxed,token,log);File.Delete(temp);temp=muxed;muxed=null;
@@ -88,7 +97,7 @@ namespace TsEncodeFlow {
     Commercials.Export(j);
     j.Message=!string.IsNullOrEmpty(j.Metadata.SubtitleWarning)?"完了（字幕の警告あり・元TSを保持）":j.Preset.KeepSubtitles&&subtitle==null?"完了（"+j.Metadata.SubtitleStatus+"・元TSを保持）":"完了（元TSを保持）";log(j.Message+"："+final);
    }finally {
-    reservation?.Dispose();foreach(string ownFile in new[]{reserve,temp,selected,muxed})if(ownFile!=null&&File.Exists(ownFile))try{File.Delete(ownFile);}catch(IOException){}
+    reservation?.Dispose();foreach(string ownFile in new[]{reserve,temp,selected,muxed,cutAudio,audioFilter,audioMux})if(ownFile!=null&&File.Exists(ownFile))try{File.Delete(ownFile);}catch(IOException){}
    }
   }
   public static string Tail(string text)=>text.Length>1800?text.Substring(text.Length-1800):text;

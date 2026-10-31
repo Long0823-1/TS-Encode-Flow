@@ -86,7 +86,7 @@ namespace TsEncodeFlow {
     var r=Resolution(p,m);if(r!=null)a.AddRange(new[]{"--output-res",r[0]+"x"+r[1],"--sar","1:1"});
     if(p.Denoise)a.Add("--vpp-knn");if(p.Sharpen)a.Add("--vpp-unsharp");
    }
-   if(m.AudioIndex>=0){if(p.CopyAudio)a.AddRange(new[]{"--audio-copy","1"});else a.AddRange(new[]{"--audio-codec","1?aac","--audio-bitrate","1?"+p.AudioBitrate});}
+   if(m.AudioIndex>=0&&keep==null){if(p.CopyAudio)a.AddRange(new[]{"--audio-copy","1"});else a.AddRange(new[]{"--audio-codec","1?aac","--audio-bitrate","1?"+p.AudioBitrate});}
    if(p.EmbedMetadata)a.AddRange(new[]{"--metadata","title="+m.Title});
    if(p.Container==Container.mp4&&p.Codec==Codec.HEVC)a.AddRange(new[]{"--video-tag","hvc1"});
    a.AddRange(Processes.Split(p.ExtraArgs??""));a.AddRange(new[]{"-o",output});return c;

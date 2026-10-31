@@ -52,6 +52,7 @@ namespace TsEncodeFlow {
   public CmMode CmMode {get;set;}=CmMode.Off;
   public CmSource CmSource {get;set;}=CmSource.Sidecar;
   public bool CmReview {get;set;}=true;
+  public bool CmNoLogo {get;set;}=false;
   public string CmTrimFps {get;set;}="";
   public bool IgnoreSubtitleErrors {get;set;}=false;
   public bool EmbedMetadata {get;set;}=true;
@@ -83,6 +84,10 @@ namespace TsEncodeFlow {
   public string EpgDll {get;set;}="";
   public string Comskip {get;set;}="";
   public string ComskipIni {get;set;}="";
+  public string ChapterExe {get;set;}="";
+  public string LogoFrame {get;set;}="";
+  public string CmLogo {get;set;}="";
+  public string JoinLogoScript {get;set;}="";
   [Browsable(false)] public string CaptionTool {get;set;}="";
   [Browsable(false)] public List<Preset> Presets {get;set;}=PresetCatalog.Create();
   [Browsable(false)] public int SelectedPreset {get;set;}=0;

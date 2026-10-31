@@ -9,6 +9,7 @@ using TsEncodeFlow;
 
 static partial class Tests {
  static async Task CmTests(string root) {
+  Check(ToolInstaller.IsCmDependency("exe_files/chapter_exe.exe")&&!ToolInstaller.IsCmDependency("exe_files/AmatsukazeCLI.exe")&&!ToolInstaller.IsCmDependency("exe_files/x264.exe"),"CM downloader excludes Amatsukaze application and encoders");
   var cuts=new[]{new TimeRange {Start=5,End=10},new TimeRange {Start=15,End=18}};
   var plan=Commercials.Build(cuts,20,30,"test");Check(plan.Segments.Count==5&&plan.OutputDuration==12,"CM timeline covers program and commercials");
   Check(Commercials.HardwareTrim(plan.Keep,30)=="0:149,300:449,540:599","GPU trim uses inclusive last frames");
@@ -18,6 +19,7 @@ static partial class Tests {
   var m=new Metadata {Duration=20,Fps=30,Width=320,Height=180,Sar=1,VideoIndex=0,AudioIndex=1,Start=new DateTime(2026,10,31)};string edl=Path.Combine(root,"record.edl"),avs=Path.Combine(root,"record.trim.avs");
   File.WriteAllText(edl,"5 10 0\n15 18 3\n1 2 2\n");File.WriteAllText(avs,"Trim(0,149) ++ Trim(300,449) ++ Trim(540,599)");
   Check(Commercials.Import(edl,m,new Preset(),"x").OutputDuration==12,"EDL commercial intervals imported");Check(Commercials.Import(avs,m,new Preset(),"x").OutputDuration==12,"join_logo_scp style Trim retained ranges imported");
+  File.WriteAllText(avs,"Trim(0,599)");var imprecise=Store.Clone(m);imprecise.Duration=20+1e-12;Check(Commercials.Import(avs,imprecise,new Preset(),"x").Segments.All(x=>!x.IsCommercial),"floating point tail does not create a sub-frame CM interval");
   File.WriteAllText(avs,"Import(\"danger.avs\")\nTrim(0,149)");Reject(()=>Commercials.Import(avs,m,new Preset(),"x"),"AVS source code never executed or accepted as trim expression");
   string srt="1\n00:00:00,000 --> 00:00:03,000\n本編\n\n2\n00:00:06,000 --> 00:00:07,000\nCM内\n\n3\n00:00:09,000 --> 00:00:11,000\n境界\n\n4\n00:00:14,000 --> 00:00:19,000\n両境界\n\n";
   var retimed=Commercials.RetimeSrt(srt,plan.Keep);Check(!retimed.Contains("CM内")&&retimed.Contains("00:00:05,000 --> 00:00:06,000"),"subtitles in removed CM disappear and later cues move forward");Check(retimed.Contains("00:00:09,000 --> 00:00:10,000")&&retimed.Contains("00:00:10,000 --> 00:00:11,000"),"subtitle crossing a removed interval splits correctly");
@@ -27,9 +29,13 @@ static partial class Tests {
   string input=Path.Combine(root,"cm-source.ts");File.WriteAllText(input,"fixture");string fingerprint=Store.Fingerprint(input);var job=new Job {Input=input,Metadata=m,Preset=new Preset {CmMode=CmMode.Chapters,CmReview=true}};
   bool review=false;try{await Commercials.Prepare(job,new Settings(),root,CancellationToken.None,_=>{},()=>{});}catch(CmReviewException){review=true;}Check(review&&job.Commercials!=null&&!job.Commercials.Approved,"no CM sidecar waits for manual review without deleting content");
   using(var q=new QueueManager(Path.Combine(root,"cm-queue"))){q.Paused=true;var j=q.Enqueue(input);j.Metadata=m;j.State=State.NeedsCmReview;q.ApproveCm(new QueueManager.Request {JobId=j.Id,Fingerprint=fingerprint,CmMode=CmMode.Cut,CmCuts=cuts.ToList()});Check(j.State==State.Waiting&&j.Commercials.Approved&&j.Commercials.Reviewed,"review confirmation resumes job with validated intervals");}
-  job.Preset.CmSource=CmSource.Comskip;job.Commercials=null;var settings=new Settings {Comskip=Environment.ProcessPath};await File.WriteAllTextAsync(Path.Combine(root,"stub-marker"),"");
-  try{await Commercials.Prepare(job,settings,root,CancellationToken.None,_=>{},()=>{});}catch(CmReviewException){}
-  Check(job.Commercials?.Segments.Count==3&&job.Commercials.Source=="analysis.edl","Comskip command protocol imports generated EDL (stub)");
+  job.Preset.CmSource=CmSource.Comskip;job.Commercials=null;bool rejected=false;
+  try{await Commercials.Prepare(job,new Settings(),root,CancellationToken.None,_=>{},()=>{});}catch(InvalidDataException){rejected=true;}
+  Check(rejected&&job.Commercials==null,"retired CM backend cannot run or silently approve content");
+  CmAnalysis.ValidateTimeline(Enumerable.Range(0,600).Select(i=>i/30d).ToArray(),600,m);
+  bool badTimeline=false;try{CmAnalysis.ValidateTimeline(new[]{0d,1d},2,m);}catch(InvalidDataException){badTimeline=true;}Check(badTimeline,"changed CM frame timeline stops automatic cut");
+  bool traversal=false;try{ToolInstaller.SafeEntry(root,"../escape.exe");}catch(InvalidDataException){traversal=true;}Check(traversal,"download archive traversal rejected");
+
  }
  static async Task CmLive(string root,string[] args) {
   string ffmpeg=Store.FindTool("ffmpeg.exe"),probe=Store.FindTool("ffprobe.exe"),input=Path.Combine(root,"CMテスト & 日本語.ts");
@@ -43,9 +49,10 @@ static partial class Tests {
    await Converter.Convert(j,settings,CancellationToken.None,_=>{},()=>{});Check(File.Exists(j.Output)&&File.Exists(j.Output+".cm.csv"),mode+" creates video and CM timeline CSV");
    var result=await Processes.Run(probe,new[]{"-v","error","-show_streams","-show_format","-show_chapters","-of","json",j.Output},CancellationToken.None,null,30);var data=Store.Json.Deserialize<Dictionary<string,object>>(result.Output);double duration=MetadataReader.Number(MetadataReader.Text(MetadataReader.Obj(data["format"]),"duration"));
    Check(Math.Abs(duration-(mode==CmMode.Cut?12:20))<0.2,mode+" output duration matches timeline");Check(MetadataReader.Items(data,"chapters").Count()==(mode==CmMode.Cut?3:5),mode+" embeds all expected program and CM chapters");
+   Check(MetadataReader.Items(data,"chapters").Select(MetadataReader.Obj).All(x=>MetadataReader.Text(MetadataReader.Obj(x["tags"]),"title").Length>0),mode+" retains readable chapter titles");
    var streams=MetadataReader.Items(data,"streams").Select(MetadataReader.Obj).ToList();Check(streams.Any(x=>MetadataReader.Text(x,"codec_type")=="audio"),mode+" retains audio");
    Check(Math.Abs(MetadataReader.Number(MetadataReader.Text(streams.First(x=>MetadataReader.Text(x,"codec_type")=="audio"),"duration"))-duration)<0.15,mode+" audio duration stays synchronized");
-   var decode=await Processes.Run(ffmpeg,new[]{"-hide_banner","-v","error","-xerror","-i",j.Output,"-map","0:v","-map","0:a","-f","null","-"},CancellationToken.None,null,60);Check(decode.ExitCode==0,mode+" full output decodes without errors");
+   var decode=await Processes.Run(ffmpeg,new[]{"-hide_banner","-v","error","-xerror","-i",j.Output,"-map","0:v","-map","0:a","-f","null","-"},CancellationToken.None,null,60);Check(decode.ExitCode==0&&string.IsNullOrWhiteSpace(decode.Error),mode+" full output decodes without errors");
    if(mode==CmMode.Cut) {
     string sub=Path.Combine(root,"cut-check.srt"),packed=Path.Combine(root,"cut-with-subtitles.mp4");File.WriteAllText(sub,Commercials.RetimeSrt("1\n00:00:11,000 --> 00:00:12,000\n字幕同期テスト\n\n",j.Commercials.Keep));
     await Subtitles.Pack(j,settings,j.Output,sub,packed,CancellationToken.None,_=>{});

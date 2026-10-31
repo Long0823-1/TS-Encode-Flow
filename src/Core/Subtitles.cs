@@ -77,12 +77,13 @@ namespace TsEncodeFlow {
   }
   public static Command Mux(Settings s,Preset p,Metadata m,string video,string subtitle,string output,string chapterFile=null) {
    var c=new Command {Exe=s.Ffmpeg};var a=c.Args;a.AddRange(new[]{"-hide_banner","-nostdin","-y","-i",video});
-   if(subtitle!=null)a.AddRange(new[]{"-i",subtitle});if(chapterFile!=null)a.AddRange(new[]{"-f","ffmetadata","-i",chapterFile});a.AddRange(new[]{"-map","0:v:0","-map","0:a?","-c:v","copy","-c:a","copy","-map_metadata","-1"});
+   if(subtitle!=null)a.AddRange(new[]{"-i",subtitle});if(chapterFile!=null)a.AddRange(new[]{"-f","ffmetadata","-i",chapterFile});a.AddRange(new[]{"-map","0:v:0","-map","0:a?","-c:v","copy","-c:a","copy"});
    if(subtitle!=null)a.AddRange(new[]{"-map","1:0","-c:s",p.Container==Container.mp4?"mov_text":"ass","-metadata:s:s:0","language=jpn","-metadata:s:s:0","title=日本語","-disposition:s:0","0"});
    if(chapterFile!=null)a.AddRange(new[]{"-map_chapters",subtitle==null?"1":"2"});
+   else a.AddRange(new[]{"-map_metadata","-1"});
    if(p.EmbedMetadata) {
     var date=new DateTimeOffset(DateTime.SpecifyKind(m.Start,DateTimeKind.Unspecified),TimeSpan.FromHours(9));
-    foreach(var item in new Dictionary<string,string>{{"title",m.Title},{"show",m.Title},{"network",m.Channel},{"description",m.Description},{"comment",m.Channel+" / "+m.Start.ToString("yyyy/MM/dd HH:mm")+"\n"+m.Description},{"date",m.Start.ToString("yyyy-MM-dd")},{"creation_time",date.ToUniversalTime().ToString("O")},{"episode_id",m.Episode},{"service_id",m.ServiceId.ToString()},{"event_id",m.EventId.ToString()}})if(!string.IsNullOrEmpty(item.Value))a.AddRange(new[]{"-metadata",item.Key+"="+item.Value});
+    foreach(var item in new Dictionary<string,string>{{"title",m.Title},{"show",m.Title},{"network",m.Channel},{"description",m.Description},{"comment",m.Channel+" / "+m.Start.ToString("yyyy/MM/dd HH:mm")+"\n"+m.Description+"\nServiceID: "+m.ServiceId+" / EventID: "+m.EventId},{"date",m.Start.ToString("yyyy-MM-dd")},{"creation_time",date.ToUniversalTime().ToString("O")},{"episode_id",m.Episode},{"service_id",m.ServiceId.ToString()},{"event_id",m.EventId.ToString()}})if(!string.IsNullOrEmpty(item.Value))a.AddRange(new[]{"-metadata",item.Key+"="+item.Value});
    }
    if(p.Container==Container.mp4){a.AddRange(new[]{"-movflags","+faststart+use_metadata_tags"});if(p.Codec==Codec.HEVC)a.AddRange(new[]{"-tag:v","hvc1"});}
    a.Add(output);return c;

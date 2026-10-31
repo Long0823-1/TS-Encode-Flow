@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 
 namespace TsEncodeFlow {
  public static class Converter {
+  public static double? EncoderProgress(string line){var m=Regex.Match(line,@"^\s*\[?(\d+(?:\.\d+)?)%");return m.Success?MetadataReader.Number(m.Groups[1].Value):(double?)null;}
   public static bool WritableRecording(string file) {
    try{using(var f=File.Open(file,FileMode.Open,FileAccess.Read,FileShare.Read)){return f.Length>0;}}catch(IOException){return false;}catch(UnauthorizedAccessException){return false;}
   }
@@ -34,8 +35,8 @@ namespace TsEncodeFlow {
     temp=Path.Combine(Path.GetDirectoryName(final),"."+Path.GetFileNameWithoutExtension(final)+".work-"+j.Id+Path.GetExtension(final));
     var s=Store.Clone(settings);var p=j.Preset;
     Action<string> progress=line=> {
-     log(line);var match=Regex.Match(line,@"(?:^|\s)(\d+(?:\.\d+)?)%");
-     if(match.Success)j.Progress=Math.Min(99,MetadataReader.Number(match.Groups[1].Value));
+     log(line);var percent=EncoderProgress(line);
+     if(percent.HasValue)j.Progress=Math.Min(99,percent.Value);
      if(line.StartsWith("out_time_us=",StringComparison.Ordinal)&&j.Metadata.Duration>0)j.Progress=Math.Min(99,MetadataReader.Number(line.Substring(12))/1000000/j.Metadata.Duration*100);
     };
     Command command;
@@ -73,7 +74,7 @@ namespace TsEncodeFlow {
     if(Store.Fingerprint(j.Input)!=fingerprint)throw new IOException("処理中に入力ファイルが更新されました。出力を確定しません。");
     File.Move(temp,final);temp=null;j.Output=final;j.Progress=100;
     Store.Save(final+".encode.json",new {input=j.Input,output=final,preset=p,metadata=j.Metadata,command=j.Command,finished=DateTime.Now,validation=MetadataReader.Obj(data.ContainsKey("format")?data["format"]:null)});
-    j.Message="完了（元TSを保持）";log(j.Message+"："+final);
+    j.Message=j.Preset.KeepSubtitles&&subtitle==null?"完了（"+j.Metadata.SubtitleStatus+"・元TSを保持）":"完了（元TSを保持）";log(j.Message+"："+final);
    }finally {
     reservation?.Dispose();foreach(string ownFile in new[]{reserve,temp,selected,muxed})if(ownFile!=null&&File.Exists(ownFile))try{File.Delete(ownFile);}catch(IOException){}
    }

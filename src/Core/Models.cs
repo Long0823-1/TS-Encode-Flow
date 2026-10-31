@@ -93,6 +93,8 @@ namespace TsEncodeFlow {
   public DateTime Start;
   public int ServiceId,EventId,NetworkId,TransportId,Width,Height,VideoIndex,AudioIndex=-1,SubtitleIndex=-1,SubtitlePid=-1;
   public string SubtitleCodec="";
+  public string SubtitleStatus="";
+  public long SubtitlePackets;
   public double Sar=1,Duration,Fps,VideoStart;
  }
  public sealed class Job {

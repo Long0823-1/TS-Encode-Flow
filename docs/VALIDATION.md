@@ -22,3 +22,12 @@ dotnet run --project tests/Tests.csproj -c Release -- --live
 dotnet run --project tests/Tests.csproj -c Release -- --live --vce C:/Tools/VCEEncC64.exe
 dotnet run --project tests/Tests.csproj -c Release -- --features --caption ./build/release/Tools/CaptionProbe.exe --worker ./build/release/Worker/TS-Encode-Worker.exe
 ```
+
+## v0.2.1 修正と追加検証
+
+- メニュー往復時のCOM例外（0x800F1000、「インストールされたコンポーネントが何も検出されませんでした。」）を再現。ダッシュボードのLabelとキューのCollectionViewを画面ごとに作成し、MAUIのネイティブ親の重複を解消。各メニューからダッシュボードへの復帰、キューとプリセットの往復を確認。
+- Windows標準ファイル選択を同梱のShellDialogsで開き、表示とキャンセルを確認。例外詳細をui-errors.logに保存。
+- AMDログの変換進捗とGPU使用率を区別。基本＋字幕・DRCS・BAT連携は44項目合格。
+- 提供された約2.3GB・30分の録画TSを、Radeon RX 570 / VCEEncC 9.22で全編変換。H.264/MP4（1280×720、Yadif、AAC）とHEVC/MKV（1440×1080、SAR 4:3、Bwdif、音声コピー）を並列実行し、両方成功。各ケース24項目合格。いずれも表示比16:9、プログレッシブ、約1807.37秒、日本語番組名・番組説明を保持。
+- この録画は字幕PIDの宣言がある一方、全12,303,537 TSパケット中、字幕パケットは0。字幕なしを正常に扱い、実データがない旨を完了表示に反映。実字幕・DRCSは別の実放送TSおよび字形サンプルで検証している。
+- ユーザーの元TS・番組情報・エラーログは変更していない。

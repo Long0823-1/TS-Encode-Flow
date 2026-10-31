@@ -57,10 +57,12 @@ static partial class Tests {
    Reject(()=>Commands.Validate(new Preset {ExtraArgs="--output other.mp4"}),"extra output override rejected");Reject(()=>Commands.Validate(new Preset {Width=721}),"odd resolution rejected");Reject(()=>Commands.Validate(new Preset {Fps="30;calc"}),"invalid fps rejected");
    var small=new Metadata {Width=320,Height=240,Sar=1};Check(Commands.Resolution(new Preset {Width=1920,Height=1080},small).SequenceEqual(new[]{320,240}),"upscale disabled");
    Check(Commands.Filters(new Preset {Deinterlace=Deinterlace.YadifBob},m).Contains("send_field"),"bob selects field output");
+   Check(Converter.EncoderProgress("[22.3%] 12666 frames, GPU 20%, VE 99%") == 22.3,"GPU progress reads encode percentage rather than GPU utilization");
    foreach(var engine in new[]{Engine.NVEncC,Engine.VCEEncC,Engine.QSVEncC}){var cmd=Commands.Hardware(new Settings(),new Preset {Engine=engine,Width=1280,Height=720},m,"in.ts","out.mp4");Check(cmd.Args.Contains("--vpp-yadif")&&cmd.Args.Contains("1280x720")&&cmd.Args.Contains(engine==Engine.QSVEncC?"--icq":"--cqp"),"hardware builder "+engine);}
    if(args.Contains("--live"))Live(root,args).GetAwaiter().GetResult();
    if(args.Contains("--features"))Features(root,args).GetAwaiter().GetResult();
    if(args.Contains("--real"))Real(root,args).GetAwaiter().GetResult();
+   if(args.Contains("--user-file"))UserFile(args).GetAwaiter().GetResult();
    if(args.Contains("--metadata")) {
     string file=args[Array.IndexOf(args,"--metadata")+1],dll=args[Array.IndexOf(args,"--dll")+1];
     var settings=new Settings {Ffmpeg=Store.FindTool("ffmpeg.exe"),Ffprobe=Store.FindTool("ffprobe.exe"),EpgDll=dll};

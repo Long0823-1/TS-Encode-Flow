@@ -10,7 +10,7 @@ sealed class EngineClient {
  public Preset Selected=>Settings.Presets[Math.Clamp(Settings.SelectedPreset,0,Settings.Presets.Count-1)];
  public EngineClient() {
   var args=Environment.GetCommandLineArgs();int index=Array.IndexOf(args,"--data");Data=index>=0&&index+1<args.Length?Path.GetFullPath(args[index+1]):Integration.DataFolder;
-  Directory.CreateDirectory(Data);Settings=Integration.LoadSettings(Data);Save();Worker=FindWorker();Refresh();
+  Pixel.DiagnosticsData=Data;Directory.CreateDirectory(Data);Settings=Integration.LoadSettings(Data);Save();Worker=FindWorker();Refresh();
  }
  static string FindWorker() {
   string production=Integration.WorkerExe(AppContext.BaseDirectory);if(File.Exists(production))return production;

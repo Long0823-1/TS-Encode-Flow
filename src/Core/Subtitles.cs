@@ -13,7 +13,7 @@ namespace TsEncodeFlow {
  public sealed class DrcsGlyph {public string Hash,Image,Alternative="",Context="";public double TimeSeconds;}
  public sealed class DrcsReplacement {public string Text="",ReferenceImage="";public DateTime Updated;}
  public sealed class CaptionCue {public long Pts,Duration;public string Text="";}
- public sealed class CaptionScan {public List<CaptionCue> Cues=new();public List<DrcsGlyph> Glyphs=new();}
+ public sealed class CaptionScan {public int SchemaVersion,DecodeErrors;public long TransportPackets,SubtitlePackets;public List<CaptionCue> Cues=new();public List<DrcsGlyph> Glyphs=new();}
  public sealed class DrcsPendingException:Exception {public DrcsPendingException(string text):base(text){}}
  public static class Drcs {
   public static string MapFile(string data)=>Path.Combine(data,"Drcs","replacements.json");
@@ -41,13 +41,14 @@ namespace TsEncodeFlow {
   }
   static string Time(double seconds){var t=TimeSpan.FromMilliseconds(Math.Max(0,seconds*1000));return ((int)t.TotalHours).ToString("00")+":"+t.Minutes.ToString("00")+":"+t.Seconds.ToString("00")+","+t.Milliseconds.ToString("000");}
   public static async Task<string> Prepare(Job j,Settings s,string data,CancellationToken token,Action<string> log,Action changed) {
-   if(!j.Preset.KeepSubtitles||j.Metadata.SubtitleIndex<0)return null;
+   if(!j.Preset.KeepSubtitles){j.Metadata.SubtitleStatus="字幕保存OFF";return null;}if(j.Metadata.SubtitleIndex<0){j.Metadata.SubtitleStatus="字幕トラックなし";return null;}
    string hash=Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Store.Fingerprint(j.Input)+"|"+j.Metadata.SubtitleIndex)));
    string folder=Path.Combine(data,"Drcs","Scans",hash);Directory.CreateDirectory(folder);string subtitle=Path.Combine(folder,"subtitles.srt");
    if(j.Metadata.SubtitleCodec=="arib_caption") {
     if(!File.Exists(s.CaptionTool))throw new FileNotFoundException("字幕解析ツールがありません。配布ZIP全体を展開してください。",s.CaptionTool);
     string file=Path.Combine(folder,"captions.json");CaptionScan scan=null;
     if(File.Exists(file))try{scan=Store.Load<CaptionScan>(file,()=>new());}catch(InvalidDataException){}
+    if(scan!=null&&scan.SchemaVersion<2)scan=null;
     if(scan==null) {
      var result=await Processes.Run(s.CaptionTool,new[]{j.Input,j.Metadata.SubtitlePid.ToString(),folder},token,log);
      if(result.ExitCode!=0)throw new InvalidDataException("ARIB字幕の解析に失敗しました。終了コード："+result.ExitCode);
@@ -56,8 +57,9 @@ namespace TsEncodeFlow {
     foreach(var glyph in scan.Glyphs){if(!Path.IsPathRooted(glyph.Image))glyph.Image=Path.Combine(folder,glyph.Image);var first=scan.Cues.FirstOrDefault(c=>c.Text.Contains("{{DRCS:"+glyph.Hash+"}}"));glyph.TimeSeconds=first==null?0:Math.Max(0,first.Pts/1000.0-j.Metadata.VideoStart);}
     j.Glyphs=scan.Glyphs;changed();var map=Drcs.Load(data);int unknown=scan.Glyphs.Count(g=>!Drcs.Resolved(g,map));
     if(unknown>0)throw new DrcsPendingException("未対応のDRCSが"+unknown+"字あります。「字幕・DRCS」で画像と代替文字を確認してください。");
-    string text=Srt(scan,j.Metadata,map);if(text.Length==0){log("この録画区間に字幕文はありませんでした。");return null;}
-    File.WriteAllText(subtitle,text,new UTF8Encoding(false));log("ARIB字幕を抽出し、保存済みDRCS対応表を適用しました。");return subtitle;
+    j.Metadata.SubtitlePackets=scan.SubtitlePackets;
+    string text=Srt(scan,j.Metadata,map);if(text.Length==0){if(scan.SubtitlePackets>0&&scan.DecodeErrors>0)throw new InvalidDataException("字幕データを正常にデコードできませんでした。字幕を黙って破棄せず停止します。");j.Metadata.SubtitleStatus=scan.SubtitlePackets==0?"字幕の実データなし":"表示する字幕文なし";log(j.Metadata.SubtitleStatus+"（字幕PIDのTSパケット数："+scan.SubtitlePackets+"）");return null;}
+    j.Metadata.SubtitleStatus="日本語字幕を保存";File.WriteAllText(subtitle,text,new UTF8Encoding(false));log("ARIB字幕を抽出し、保存済みDRCS対応表を適用しました。");return subtitle;
    }
    var args=new[]{"-hide_banner","-nostdin","-y","-i",j.Input,"-map","0:"+j.Metadata.SubtitleIndex,"-c:s","srt",subtitle};
    var extraction=await Processes.Run(s.Ffmpeg,args,token,log);if(extraction.ExitCode!=0)throw new InvalidDataException("字幕をテキスト化できません。この字幕形式に対応したFFmpegが必要です。");return new FileInfo(subtitle).Length>0?subtitle:null;

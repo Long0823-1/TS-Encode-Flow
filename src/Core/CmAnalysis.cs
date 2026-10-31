@@ -38,13 +38,14 @@ namespace TsEncodeFlow {
    var encoding=Encoding.GetEncoding(932,EncoderFallback.ExceptionFallback,DecoderFallback.ExceptionFallback);
    string avs=Path.Combine(work,"source.avs"),privateIndex=Path.Combine(Commercials.Folder(job,data),"source-index.lwi");
    string sourceIdentity=Store.Fingerprint(job.Input)+"|"+Store.Fingerprint(plugin),privateIdentity=sourceIdentity+"|"+job.Metadata.VideoIndex+"|"+job.Metadata.AudioIndex;
+   int nativeVideo=-1,nativeAudio=-1;
    string Script(string source,int first=0,int count=0) {
     string clip="AudioDub(v,a)"+(count>0?".Trim("+first+",-"+count+")":"");
-    return "ClearAutoloadDirs()\nLoadPlugin("+Avs(plugin)+")\nv=LWLibavVideoSource("+Avs(source)+",stream_index="+job.Metadata.VideoIndex+",threads=4,repeat=false)\na=LWLibavAudioSource("+Avs(source)+",stream_index="+job.Metadata.AudioIndex+")\n"+clip+".AssumeFPS("+((int)Math.Round(job.Metadata.Fps*1000000)).ToString(CultureInfo.InvariantCulture)+",1000000).ConvertAudioTo16bit().ConvertToYV12()\n";
+    return "ClearAutoloadDirs()\nLoadPlugin("+Avs(plugin)+")\nv=LWLibavVideoSource("+Avs(source)+",stream_index="+nativeVideo+",threads=4,repeat=false)\na=LWLibavAudioSource("+Avs(source)+",stream_index="+nativeAudio+")\n"+clip+".AssumeFPS("+((int)Math.Round(job.Metadata.Fps*1000000)).ToString(CultureInfo.InvariantCulture)+",1000000).ConvertAudioTo16bit().ConvertToYV12()\n";
    }
    async Task<(int Width,int Height,int Count)> Info() {
     var info=await Processes.Run(logoExe,new[]{"-info-only",avs},token,log);var match=Regex.Match(info.Output,@"CMINFO (\d+) (\d+) (\d+) (\d+) (\d+)");
-    if(info.ExitCode!=0||!match.Success)throw new InvalidDataException("元TSのCM解析インデックスを準備できません。録画フォルダーへのインデックス書き込み権限とログを確認してください。");
+    if(info.ExitCode!=0||!match.Success)throw new InvalidDataException("CM解析ツールが映像・音声を開けません。詳細ログ："+(info.Error??info.Output).Trim());
     return(int.Parse(match.Groups[1].Value),int.Parse(match.Groups[2].Value),int.Parse(match.Groups[5].Value));
    }
    job.Message="元TSのCM解析インデックスを準備中（再エンコードなし）";changed();
@@ -66,9 +67,17 @@ namespace TsEncodeFlow {
     }
     File.Copy(canonical,privateIndex,true);File.WriteAllText(privateIndex+".identity",privateIdentity);
    }
+   async Task<(long Position,double Time)[]> Packets(int stream) {
+    var probe=await Processes.Run(settings.Ffprobe,new[]{"-v","error","-read_intervals","%+10","-select_streams",stream.ToString(),"-show_packets","-show_entries","packet=pos,pts_time","-of","json",job.Input},token);
+    if(probe.ExitCode!=0)throw new InvalidDataException("CM解析のトラック照合用パケットを取得できません。");
+    var json=Store.Json.Deserialize<Dictionary<string,object>>(probe.Output);
+    return MetadataReader.Items(json,"packets").Select(MetadataReader.Obj).Select(p=>(long.TryParse(MetadataReader.Text(p,"pos"),out var pos)?pos:-1,double.TryParse(MetadataReader.Text(p,"pts_time"),NumberStyles.Float,CultureInfo.InvariantCulture,out var time)?time:double.NaN)).ToArray();
+   }
+   nativeVideo=CmIndex.MapStream(privateIndex,0,await Packets(job.Metadata.VideoIndex));nativeAudio=CmIndex.MapStream(privateIndex,1,await Packets(job.Metadata.AudioIndex));
+   log("CMトラック照合：FFmpeg映像 "+job.Metadata.VideoIndex+" → 解析映像 "+nativeVideo+" / FFmpeg音声 "+job.Metadata.AudioIndex+" → 解析音声 "+nativeAudio);
    File.WriteAllText(avs,Script(privateIndex),encoding);var sourceInfo=await Info();
    if(sourceInfo.Width!=job.Metadata.Width||sourceInfo.Height!=job.Metadata.Height)throw new InvalidDataException("CM解析の映像形式が元TSと一致しません。");
-   double[] indexed=CmIndex.Read(privateIndex,job.Metadata.VideoIndex,sourceInfo.Count,out var widths,out var heights);
+   double[] indexed=CmIndex.Read(privateIndex,nativeVideo,sourceInfo.Count,out var widths,out var heights);
    int skip=CmIndex.Align(indexed,times.Select(t=>t+headerVideoStart).ToArray());
    for(int i=skip;i<skip+times.Length;i++)if(widths[i]!=job.Metadata.Width||heights[i]!=job.Metadata.Height)throw new InvalidDataException("解析区間の途中で映像解像度が変化しています。自動適用を停止しました。");
    log("元TSを直接解析：先頭調整 "+skip+" フレーム / 対応確認 "+times.Length+" フレーム / インデックス "+new FileInfo(privateIndex).Length+" bytes");

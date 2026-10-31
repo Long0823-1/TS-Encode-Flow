@@ -14,6 +14,10 @@ static partial class Tests {
   var indexed=CmIndex.Read(index,0,4,out var iw,out var ih);Check(CmIndex.Align(indexed,new[]{2d/30,3d/30})==2&&iw.All(w=>w==320)&&ih.All(h=>h==180),"direct TS index maps leading decoder differences without video re-encoding");
   bool indexMismatch=false;try{CmIndex.Align(indexed,new[]{0d,2d/30});}catch(InvalidDataException){indexMismatch=true;}Check(indexMismatch,"interior decoder frame mismatch stops automatic CM application");
   File.AppendAllText(index,"ignored binary trailer");Check(CmIndex.Read(index,0,4,out _,out _).Length==4,"index reader stops before unrelated binary trailer");
+  string tracks=Path.Combine(root,"tracks.lwi");File.WriteAllText(tracks,"<LibavReaderIndexFile=13>\n"+"Index=0,Type=0,Codec=2,TimeBase=1/90000,POS=188,PTS=90000,DTS=90000,EDI=0\nIndex=0,Type=0,Codec=2,TimeBase=1/90000,POS=376,PTS=93000,DTS=93000,EDI=0\nIndex=1,Type=1,Codec=86018,TimeBase=1/90000,POS=564,PTS=90000,DTS=90000,EDI=0\nIndex=1,Type=1,Codec=86018,TimeBase=1/90000,POS=752,PTS=91920,DTS=91920,EDI=0\n</LibavReaderIndex>\n");
+  Check(CmIndex.MapStream(tracks,0,new[]{(188L,1d),(376L,93000d/90000)})==0&&CmIndex.MapStream(tracks,1,new[]{(564L,1d),(752L,91920d/90000)})==1,"native track mapping uses packet positions and timestamps rather than FFmpeg stream numbers");
+  bool wrongTrack=false;try{CmIndex.MapStream(tracks,0,new[]{(564L,1d),(752L,91920d/90000)});}catch(InvalidDataException){wrongTrack=true;}Check(wrongTrack,"audio packet positions cannot select a native video track");
+  bool wrongPacketTime=false;try{CmIndex.MapStream(tracks,0,new[]{(188L,2d),(376L,3d)});}catch(InvalidDataException){wrongPacketTime=true;}Check(wrongPacketTime,"packet position matches require matching timestamps");
   var cuts=new[]{new TimeRange {Start=5,End=10},new TimeRange {Start=15,End=18}};
   var plan=Commercials.Build(cuts,20,30,"test");Check(plan.Segments.Count==5&&plan.OutputDuration==12,"CM timeline covers program and commercials");
   Check(Commercials.HardwareTrim(plan.Keep,30)=="0:149,300:449,540:599","GPU trim uses inclusive last frames");

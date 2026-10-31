@@ -16,6 +16,22 @@ namespace TsEncodeFlow {
    string dir=Path.Combine(Path.GetTempPath(),"TS-Encode-Flow-IndexLocks");Directory.CreateDirectory(dir);
    for(;;){token.ThrowIfCancellationRequested();try{return File.Open(Path.Combine(dir,Key(input)+".lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None);}catch(IOException){await Task.Delay(250,token);}}
   }
+  public static int MapStream(string file,int type,IEnumerable<(long Position,double Time)> packets) {
+   var wanted=packets.Where(p=>p.Position>=0&&double.IsFinite(p.Time)).GroupBy(p=>p.Position).ToDictionary(g=>g.Key,g=>g.Select(p=>p.Time).ToArray());
+   var matches=new Dictionary<int,HashSet<long>>();
+   using var reader=new StreamReader(file,Encoding.ASCII);
+   var pattern=new Regex(@"^Index=(\d+),Type=(\d+),Codec=\d+,TimeBase=(\d+)/(\d+),POS=(-?\d+),PTS=(-?\d+),DTS=-?\d+,EDI=\d+$");
+   string line;while((line=reader.ReadLine())!=null&&line!="</LibavReaderIndex>") {
+    var m=pattern.Match(line);if(!m.Success||int.Parse(m.Groups[2].Value)!=type)continue;
+    long pos=long.Parse(m.Groups[5].Value,CultureInfo.InvariantCulture);if(!wanted.TryGetValue(pos,out var times))continue;
+    double den=double.Parse(m.Groups[4].Value,CultureInfo.InvariantCulture);if(den<=0)continue;
+    double time=double.Parse(m.Groups[6].Value,CultureInfo.InvariantCulture)*double.Parse(m.Groups[3].Value,CultureInfo.InvariantCulture)/den;
+    if(!times.Any(t=>Math.Abs(t-time)<.0005))continue;
+    int stream=int.Parse(m.Groups[1].Value);if(!matches.ContainsKey(stream))matches[stream]=new HashSet<long>();matches[stream].Add(pos);
+   }
+   if(matches.Count!=1||matches.Single().Value.Count<2)throw new InvalidDataException("CM解析とFFmpegの映像・音声トラックを特定できません。パケット位置と時刻の照合に失敗しました。");
+   return matches.Single().Key;
+  }
   public static double[] Read(string file,int videoIndex,int expectedCount,out int[] widths,out int[] heights) {
    if(expectedCount<1||expectedCount>20000000)throw new InvalidDataException("CM解析のフレーム数が不正です。");
    using var reader=new StreamReader(file,Encoding.ASCII);

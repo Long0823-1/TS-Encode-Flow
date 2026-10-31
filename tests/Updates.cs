@@ -8,6 +8,7 @@ using TsEncodeFlow;
 static partial class Tests {
  static async Task UpdateLive() {
   using var http=new HttpClient();var found=await Updates.Check(http,new Version(0,0,0));
+  Console.WriteLine("GitHub live check: "+found.Message);
   Check(found.Available,"public GitHub API discovers published release without credentials");
   var same=await Updates.Check(http,Version.Parse(found.Version.TrimStart('v','V')));
   Check(!same.Available&&same.Message.Contains("最新版"),"public GitHub API confirms equal installed release");

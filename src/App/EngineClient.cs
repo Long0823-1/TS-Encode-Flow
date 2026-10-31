@@ -26,7 +26,8 @@ sealed class EngineClient {
  public void Send(string action,string? id=null){Integration.Send(Data,action,id);Wake();}
  public void Choose(Preset preset){Settings.SelectedPreset=Settings.Presets.IndexOf(preset);Save();}
  public void SavePreset(Preset preset) {
-  Commands.Validate(preset);preset.FactoryId="";preset.Category="カスタム";Settings.Presets.Add(preset);Settings.SelectedPreset=Settings.Presets.Count-1;Save();
+  PresetCatalog.SaveCustom(Settings,preset);Save();
  }
+ public async Task ChangeJobPreset(string id,Preset preset){Store.Save(Path.Combine(Data,"Inbox",Guid.NewGuid().ToString("N")+".json"),new QueueManager.Request {Action="change-preset",JobId=id,Profile=new BatchProfile {Preset=Store.Clone(preset)}});Wake();string expected=Store.Json.Serialize(preset);for(int i=0;i<150;i++){await Task.Delay(100);var job=Integration.ReadJobs(Data).FirstOrDefault(j=>j.Id==id);if(job==null||job.State!=State.Cancelled)throw new InvalidOperationException("ジョブの状態が変わりました。キューを確認してください。");if(Store.Json.Serialize(job.Preset)==expected)return;}throw new TimeoutException("ワーカーの適用を確認できません。キューの設定を確認してから再試行してください。");}
  public void DeletePreset(Preset preset){PresetCatalog.DeleteCustom(Settings,preset);Save();}
 }

@@ -57,7 +57,7 @@ namespace TsEncodeFlow {
   public void Tick() {
    foreach(string request in Directory.EnumerateFiles(Path.Combine(DataFolder,"Inbox"),"*.json").Take(100))try {
     var value=Store.Load<Request>(request,()=>new Request());
-    if(value.Action=="approve-cm")ApproveCm(value);else if(value.Action=="clear-history")ClearHistory();else if(value.Action=="shutdown"){StopRequested=true;Paused=true;}else if(value.Action=="retry-ignore-subtitles")Retry(value.JobId,true);else if(value.Action=="cancel")Cancel(value.JobId);else if(value.Action=="retry")Retry(value.JobId);else if(value.Action=="pause")Paused=true;else if(value.Action=="resume")Paused=false;else {var added=Enqueue(value.Path,false,value.Profile?.Preset,value.Profile?.OutputFolder,value.Profile?.FileName);if(added==null)Notice?.Invoke("同じTSはすでに待機中または変換中です。キューを確認してください。");}
+    if(value.Action=="approve-cm")ApproveCm(value);else if(value.Action=="change-preset")ChangePreset(value.JobId,value.Profile?.Preset);else if(value.Action=="clear-history")ClearHistory();else if(value.Action=="shutdown"){StopRequested=true;Paused=true;}else if(value.Action=="retry-ignore-subtitles")Retry(value.JobId,true);else if(value.Action=="cancel")Cancel(value.JobId);else if(value.Action=="retry")Retry(value.JobId);else if(value.Action=="pause")Paused=true;else if(value.Action=="resume")Paused=false;else {var added=Enqueue(value.Path,false,value.Profile?.Preset,value.Profile?.OutputFolder,value.Profile?.FileName);if(added==null)Notice?.Invoke("同じTSはすでに待機中または変換中です。キューを確認してください。");}
     File.Delete(request);
    }catch(Exception e){Notice?.Invoke("追加失敗："+e.Message);try{File.Move(request,request+".error");}catch(IOException){}}
    if(Settings.WatchEnabled&&(DateTime.UtcNow-lastScan).TotalSeconds>=3) {
@@ -105,6 +105,12 @@ namespace TsEncodeFlow {
   }
   public void ApproveCm(Request request) {
    lock(gate){var j=Jobs.FirstOrDefault(x=>x.Id==request.JobId);if(j==null||active.ContainsKey(j.Id)||j.State==State.Completed)throw new ArgumentException("処理中・完了済みのジョブは変更できません。");if(j.Metadata==null||Store.Fingerprint(j.Input)!=request.Fingerprint)throw new ArgumentException("入力が更新されています。再解析してください。");if(request.CmMode!=CmMode.Cut&&request.CmMode!=CmMode.Chapters)throw new ArgumentException("CM出力方式を選んでください。");var p=Store.Clone(j.Preset);p.CmMode=request.CmMode;if(p.CmMode==CmMode.Cut){p.CopyAudio=false;p.Fps="";}Commands.Validate(p);var plan=Commercials.Build(request.CmCuts??new List<TimeRange>(),j.Metadata.Duration,j.Metadata.Fps,request.Fingerprint,"確認・修正済み");if(p.CmMode==CmMode.Cut&&plan.Keep.Count==0)throw new ArgumentException("本編を残してください。");if(j.Commercials?.HasVideoStart==true){plan.HasVideoStart=true;plan.SourceVideoStart=j.Commercials.SourceVideoStart;}plan.Approved=plan.Reviewed=true;j.Commercials=plan;j.Preset=p;j.State=State.Waiting;j.Progress=0;j.Message="CM区間を確定しました。再開待ち";Save();}
+  }
+  public void ChangePreset(string id,Preset preset) {
+   if(preset==null)throw new ArgumentException("プリセットを選択してください。");Commands.Validate(preset);
+   lock(gate){var job=Jobs.FirstOrDefault(j=>j.Id==id);if(job==null||job.State!=State.Cancelled||active.ContainsKey(id))throw new ArgumentException("中止が完了したジョブだけプリセットを変更できます。");
+    job.Preset=Store.Clone(preset);job.Metadata=null;job.Commercials=null;job.Glyphs=new List<DrcsGlyph>();job.Progress=0;job.Command="";job.Output="";job.Message="プリセットを「"+preset.Name+"」に変更しました。「再試行」で開始できます。";Save();
+   }
   }
   public void Retry(string id,bool ignoreSubtitleErrors=false) {
    lock(gate){var j=Jobs.FirstOrDefault(x=>x.Id==id);if(j!=null&&(j.State==State.Failed||j.State==State.Cancelled||j.State==State.Interrupted||j.State==State.NeedsInput)){if(ignoreSubtitleErrors)j.Preset.IgnoreSubtitleErrors=true;j.State=State.Waiting;j.Message="再試行待ち";j.Progress=0;Save();}}

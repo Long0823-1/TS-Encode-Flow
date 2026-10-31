@@ -4,6 +4,19 @@ using System.Linq;
 
 namespace TsEncodeFlow {
  public static class PresetCatalog {
+  public static bool SaveCustom(Settings settings,Preset preset) {
+   Commands.Validate(preset);var saved=Store.Clone(preset);saved.Name=(saved.Name??"").Trim();
+   if(saved.Name.Length==0)throw new ArgumentException("プリセット名を入力してください。");
+   saved.FactoryId="";saved.Category="カスタム";
+   var matches=settings.Presets.Where(p=>string.IsNullOrEmpty(p.FactoryId)&&string.Equals(p.Name?.Trim(),saved.Name,StringComparison.OrdinalIgnoreCase)).ToList();
+   Preset bat=settings.BatPresetIndex>=0&&settings.BatPresetIndex<settings.Presets.Count?settings.Presets[settings.BatPresetIndex]:null;
+   bool batReplaced=bat!=null&&matches.Contains(bat);
+   if(matches.Count==0)settings.Presets.Add(saved);
+   else {int index=settings.Presets.IndexOf(matches[0]);settings.Presets[index]=saved;foreach(var duplicate in matches.Skip(1))settings.Presets.Remove(duplicate);}
+   settings.SelectedPreset=settings.Presets.IndexOf(saved);
+   settings.BatPresetIndex=batReplaced?settings.SelectedPreset:bat==null?-1:settings.Presets.IndexOf(bat);
+   return matches.Count>0;
+  }
   public static void DeleteCustom(Settings settings,Preset preset) {
    int index=settings.Presets.IndexOf(preset);
    if(index<0||!string.IsNullOrEmpty(preset.FactoryId))throw new ArgumentException("削除できるのは自作のカスタムプリセットだけです。");

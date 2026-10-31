@@ -10,6 +10,10 @@ using TsEncodeFlow;
 static partial class Tests {
  static async Task CmTests(string root) {
   Check(ToolInstaller.IsCmDependency("exe_files/chapter_exe.exe")&&!ToolInstaller.IsCmDependency("exe_files/AmatsukazeCLI.exe")&&!ToolInstaller.IsCmDependency("exe_files/x264.exe"),"CM downloader excludes Amatsukaze application and encoders");
+  string index=Path.Combine(root,"test.lwi");File.WriteAllText(index,"<LSMASHWorksIndexVersion=0.0.2.0>\n<LibavReaderIndexFile=13>\n"+string.Join("\n",Enumerable.Range(0,4).Select(i=>"Index=0,Type=0,Codec=2,TimeBase=1/30,POS=0,PTS="+i+",DTS="+i+",EDI=0\nKey=1,Width=320,Height=180,Format=yuv420p"))+"\n</LibavReaderIndex>\n");
+  var indexed=CmIndex.Read(index,0,4,out var iw,out var ih);Check(CmIndex.Align(indexed,new[]{2d/30,3d/30})==2&&iw.All(w=>w==320)&&ih.All(h=>h==180),"direct TS index maps leading decoder differences without video re-encoding");
+  bool indexMismatch=false;try{CmIndex.Align(indexed,new[]{0d,2d/30});}catch(InvalidDataException){indexMismatch=true;}Check(indexMismatch,"interior decoder frame mismatch stops automatic CM application");
+  File.AppendAllText(index,"ignored binary trailer");Check(CmIndex.Read(index,0,4,out _,out _).Length==4,"index reader stops before unrelated binary trailer");
   var cuts=new[]{new TimeRange {Start=5,End=10},new TimeRange {Start=15,End=18}};
   var plan=Commercials.Build(cuts,20,30,"test");Check(plan.Segments.Count==5&&plan.OutputDuration==12,"CM timeline covers program and commercials");
   Check(Commercials.HardwareTrim(plan.Keep,30)=="0:149,300:449,540:599","GPU trim uses inclusive last frames");

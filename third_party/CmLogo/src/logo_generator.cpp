@@ -134,14 +134,18 @@ bool replace_file(const std::string &source,
 
 std::string join_path(const std::string &directory,
                       const std::string &name) {
-  if (directory.empty() || directory == ".") {
-    return directory.empty() ? name : directory + "/" + name;
-  }
-  const char last = directory[directory.size() - 1];
-  if (last == '/' || last == '\\') {
-    return directory + name;
-  }
+#ifdef _WIN32
+  // The original detector's Win32 file enumeration expects backslash paths.
+  std::string normalized = directory;
+  std::replace(normalized.begin(), normalized.end(), '/', char(92));
+  if (normalized.empty()) return name;
+  if (normalized.back() == char(92)) return normalized + name;
+  return normalized + std::string(1, char(92)) + name;
+#else
+  if (directory.empty()) return name;
+  if (directory.back() == '/') return directory + name;
   return directory + "/" + name;
+#endif
 }
 
 std::string base_name(const std::string &path) {

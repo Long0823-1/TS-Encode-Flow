@@ -2,6 +2,14 @@
 
 録画したTSをMP4・MKVに変換するWindows x64アプリです。.NET MAUIのネイティブUIを使い、Pixel / Material風の丸み・余白・明るい配色で構成しています。
 
+
+現在の版は **v0.2.2** です。開発中のWindows向けアプリです。
+
+- [導入・操作手順](docs/SETUP.md)：初期設定、AMD変換、字幕、EPGTimer連携、再実行
+- [ソースからのビルド](docs/BUILD.md)
+- [検証記録と未検証事項](docs/VALIDATION.md)
+
+このリポジトリの「Code → Download ZIP」はソースです。アプリを使う場合はビルド済み配布ZIPを用意するか、ビルド手順に従ってください。
 ## はじめ方
 
 1. 配布ZIPをすべて展開し、`TS-Encode-Flow.exe` を起動します。Windows 10 バージョン2004以降／Windows 11 x64に対応します。

@@ -11,7 +11,7 @@ namespace TsEncodeFlow {
   public readonly string DataFolder;
   public Settings Settings;
   public readonly List<Job> Jobs;
-  public bool Paused;
+  public bool Paused,StopRequested;
   public event Action Changed;
   public event Action<string> Notice;
   readonly object gate=new object();
@@ -54,7 +54,7 @@ namespace TsEncodeFlow {
   public void Tick() {
    foreach(string request in Directory.EnumerateFiles(Path.Combine(DataFolder,"Inbox"),"*.json").Take(100))try {
     var value=Store.Load<Request>(request,()=>new Request());
-    if(value.Action=="cancel")Cancel(value.JobId);else if(value.Action=="retry")Retry(value.JobId);else if(value.Action=="pause")Paused=true;else if(value.Action=="resume")Paused=false;else {var added=Enqueue(value.Path,false,value.Profile?.Preset,value.Profile?.OutputFolder,value.Profile?.FileName);if(added==null)Notice?.Invoke("同じTSはすでに待機中または変換中です。キューを確認してください。");}
+    if(value.Action=="shutdown"){StopRequested=true;Paused=true;}else if(value.Action=="retry-ignore-subtitles")Retry(value.JobId,true);else if(value.Action=="cancel")Cancel(value.JobId);else if(value.Action=="retry")Retry(value.JobId);else if(value.Action=="pause")Paused=true;else if(value.Action=="resume")Paused=false;else {var added=Enqueue(value.Path,false,value.Profile?.Preset,value.Profile?.OutputFolder,value.Profile?.FileName);if(added==null)Notice?.Invoke("同じTSはすでに待機中または変換中です。キューを確認してください。");}
     File.Delete(request);
    }catch(Exception e){Notice?.Invoke("追加失敗："+e.Message);try{File.Move(request,request+".error");}catch(IOException){}}
    if(Settings.WatchEnabled&&(DateTime.UtcNow-lastScan).TotalSeconds>=3) {
@@ -89,8 +89,8 @@ namespace TsEncodeFlow {
   public void Cancel(string id) {
    lock(gate){CancellationTokenSource source;if(active.TryGetValue(id,out source))source.Cancel();else{var j=Jobs.FirstOrDefault(x=>x.Id==id);if(j!=null&&j.State==State.Waiting){j.State=State.Cancelled;j.Message="待機を中止しました。";}}Save();}
   }
-  public void Retry(string id) {
-   lock(gate){var j=Jobs.FirstOrDefault(x=>x.Id==id);if(j!=null&&(j.State==State.Failed||j.State==State.Cancelled||j.State==State.Interrupted||j.State==State.NeedsInput)){j.State=State.Waiting;j.Message="再試行待ち";j.Progress=0;Save();}}
+  public void Retry(string id,bool ignoreSubtitleErrors=false) {
+   lock(gate){var j=Jobs.FirstOrDefault(x=>x.Id==id);if(j!=null&&(j.State==State.Failed||j.State==State.Cancelled||j.State==State.Interrupted||j.State==State.NeedsInput)){if(ignoreSubtitleErrors)j.Preset.IgnoreSubtitleErrors=true;j.State=State.Waiting;j.Message="再試行待ち";j.Progress=0;Save();}}
   }
   public int ActiveCount {get{lock(gate)return active.Count;}}
   public void Dispose(){Paused=true;lock(gate)foreach(var source in active.Values)source.Cancel();}

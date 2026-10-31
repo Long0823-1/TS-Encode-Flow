@@ -2,7 +2,14 @@ using TsEncodeFlow;
 
 static class Program {
  static string Arg(string[] args,string name,string fallback){int i=Array.IndexOf(args,name);return i>=0&&i+1<args.Length?args[i+1]:fallback;}
- static int Main(string[] args) {
+ [STAThread]static int Main(string[] args) {
+  bool tray=Environment.UserInteractive&&!args.Contains("--run")&&!args.Contains("--enqueue");
+  if(!tray)return Run(args,CancellationToken.None,false);
+  System.Windows.Forms.Application.EnableVisualStyles();
+  string data=Path.GetFullPath(Arg(args,"--data",Integration.DataFolder));
+  using var context=new WorkerTray(data,token=>Run(args,token,true));System.Windows.Forms.Application.Run(context);return context.Result;
+ }
+ static int Run(string[] args,CancellationToken stop,bool resident) {
   string data=Path.GetFullPath(Arg(args,"--data",Integration.DataFolder));Directory.CreateDirectory(data);
   try {
    int enqueue=Array.IndexOf(args,"--enqueue");
@@ -21,19 +28,20 @@ static class Program {
     string notice="";queue.Notice+=text=>notice=text;DateTime idle=DateTime.UtcNow,modified=File.GetLastWriteTimeUtc(settingsFile),progressSaved=DateTime.MinValue;
     var status=new WorkerStatus {Running=true,Pid=Environment.ProcessId};
     try {
-     while(true) {
+     while(!stop.IsCancellationRequested) {
       if(File.GetLastWriteTimeUtc(settingsFile)!=modified){try{var updated=Integration.LoadSettings(data);updated.Validate();queue.Settings=updated;modified=File.GetLastWriteTimeUtc(settingsFile);}catch(Exception e){notice=e.Message;}}
       bool watch=queue.Settings.WatchEnabled;if(args.Contains("--run"))queue.Settings.WatchEnabled=false;
-      queue.Tick();if(args.Contains("--run"))queue.Settings.WatchEnabled=watch;
+      queue.Tick();if(queue.StopRequested)break;if(args.Contains("--run"))queue.Settings.WatchEnabled=watch;
       if(queue.ActiveCount>0&&(DateTime.UtcNow-progressSaved).TotalSeconds>=1){queue.Save();progressSaved=DateTime.UtcNow;}
       bool busy=queue.Snapshot().Any(j=>j.State==State.Waiting||j.State==State.Running);
       if(busy||queue.Settings.WatchEnabled)idle=DateTime.UtcNow;
       status.Running=true;status.Paused=queue.Paused;status.Active=queue.ActiveCount;status.Updated=DateTime.UtcNow;status.Message=notice;Store.Save(statusFile,status);
       if(args.Contains("--run")&&!busy)return queue.Snapshot().Any(j=>j.State==State.Failed)?1:0;
-      if(!busy&&!queue.Settings.WatchEnabled&&(DateTime.UtcNow-idle).TotalSeconds>=8)return 0;
+      if(!resident&&!busy&&!queue.Settings.WatchEnabled&&(DateTime.UtcNow-idle).TotalSeconds>=8)return 0;
       Thread.Sleep(500);
      }
-    }finally{status.Running=false;status.Active=0;status.Updated=DateTime.UtcNow;Store.Save(statusFile,status);}
+     queue.Dispose();while(queue.ActiveCount>0)Thread.Sleep(100);return 0;
+    }finally{status.Running=false;status.Paused=queue.Paused;status.Active=0;status.Updated=DateTime.UtcNow;Store.Save(statusFile,status);}
    }
   }catch(Exception e){File.AppendAllText(Path.Combine(data,"worker-error.log"),DateTime.Now+" "+e+Environment.NewLine);return 1;}
  }

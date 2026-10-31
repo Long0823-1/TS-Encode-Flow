@@ -49,6 +49,7 @@ namespace TsEncodeFlow {
   public bool Denoise {get;set;}=false;
   [Category("3. フィルタ"),DisplayName("シャープ化")] public bool Sharpen {get;set;}=false;
   public bool KeepSubtitles {get;set;}=true;
+  public bool IgnoreSubtitleErrors {get;set;}=false;
   public bool EmbedMetadata {get;set;}=true;
   [Category("4. 音声"),DisplayName("音声をコピー"),Description("false=AACに変換。最初の選択サービス内の音声1本を対象にします。")]
   public bool CopyAudio {get;set;}=false;
@@ -94,6 +95,7 @@ namespace TsEncodeFlow {
   public int ServiceId,EventId,NetworkId,TransportId,Width,Height,VideoIndex,AudioIndex=-1,SubtitleIndex=-1,SubtitlePid=-1;
   public string SubtitleCodec="";
   public string SubtitleStatus="";
+  public string SubtitleWarning="";
   public long SubtitlePackets;
   public double Sar=1,Duration,Fps,VideoStart;
  }

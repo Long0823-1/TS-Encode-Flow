@@ -34,17 +34,18 @@ sealed class MainPage:ContentPage {
   foreach(var item in new[]{("ダッシュボード","◉"),("変換キュー","☷"),("プリセット","◈"),("字幕・DRCS","文"),("自動化","↻"),("設定","⚙")}) {
    string name=item.Item1;var button=Pixel.Button(item.Item2+"   "+name,()=>Navigate(name));button.HorizontalOptions=LayoutOptions.Fill;button.Padding=new Thickness(18,14);nav[name]=button;links.Children.Add(button);
   }
-  rail.Add(links,0,1);rail.Add(Pixel.Stack(Pixel.Text("元のTSはそのまま",13,Pixel.Muted,true),Pixel.Text("0.2.4 · .NET MAUI",12,Pixel.Muted),Pixel.Button("Ko-fiで開発を応援",()=>Pickers.Open("https://ko-fi.com/long0823"))),0,2);root.Add(rail,0,0);
+  rail.Add(links,0,1);rail.Add(Pixel.Stack(Pixel.Text("元のTSはそのまま",13,Pixel.Muted,true),Pixel.Text("0.2.5 · .NET MAUI",12,Pixel.Muted),Pixel.Button("Ko-fiで開発を応援",()=>Pickers.Open("https://ko-fi.com/long0823"))),0,2);root.Add(rail,0,0);
   var main=new Grid {RowDefinitions=new RowDefinitionCollection {new(88),new(GridLength.Auto),new(GridLength.Star),new(34)},RowSpacing=12};
   var heading=new Grid {ColumnDefinitions=new ColumnDefinitionCollection {new(GridLength.Star),new(GridLength.Auto)}};heading.Add(Pixel.Stack(title,subtitle),0,0);heading.Add(Pixel.Button("＋ TSを追加",AddFiles,true),1,0);main.Add(heading,0,0);updateBanner.Content=Pixel.Card(Pixel.Stack(updateText,Pixel.Button("更新内容・ダウンロードを開く",()=>Pickers.Open(Updates.ReleasesUrl),true)),Pixel.Tint,16);main.Add(updateBanner,0,1);main.Add(body,0,2);main.Add(toast,0,3);root.Add(main,1,0);Content=root;
-  Navigate(section);
+  var launchArgs=Environment.GetCommandLineArgs();int pageIndex=Array.IndexOf(launchArgs,"--page");Navigate(pageIndex>=0&&pageIndex+1<launchArgs.Length&&nav.ContainsKey(launchArgs[pageIndex+1])?launchArgs[pageIndex+1]:section);
   Dispatcher.StartTimer(TimeSpan.FromSeconds(1),()=>{Refresh();return true;});
-    Loaded+=async(s,e)=>{Refresh();if(!updateStarted){updateStarted=true;await CheckUpdates();}};
+    Loaded+=async(s,e)=>{Refresh();if(!updateStarted){updateStarted=true;client.Wake();await CheckUpdates();}};
   Dispatcher.StartTimer(TimeSpan.FromHours(6),()=>{_ = CheckUpdates();return true;});
  }
  async Task AddFiles(){var files=await Pickers.Files();if(files.Count>0){int n=client.Add(files);Notice(n+"本を追加しました。録画中のファイルは終了まで待機します。");Refresh();}}
  async Task AddFolder(){var folder=await Pickers.Folder();if(folder!=null){int n=client.Add(Directory.EnumerateFiles(folder,"*.ts"));Notice(n+"本を追加しました。");Refresh();}}
  void Notice(string text)=>toast.Text=text;
+ public void OpenSection(string name)=>Navigate(nav.ContainsKey(name)?name:"ダッシュボード");
  void Navigate(string name) {
   if(section==name&&body.Content!=null){Refresh();return;}
   section=name;title.Text=name;subtitle.Text=name switch {"ダッシュボード"=>"録画から変換まで、ひとつの流れに。","変換キュー"=>"進捗と結果を、ここでまとめて確認。","プリセット"=>"見るものに合わせて、ちょうどいい画質を。","字幕・DRCS"=>"字形と写真を見比べて、読めない文字を補正。","自動化"=>"録画が終わったら、あとはおまかせ。",_=>"必要なツールと、保存先を整えます。"};
@@ -81,7 +82,7 @@ sealed class MainPage:ContentPage {
    health.Text=drcsPending>0?"未対応のDRCSが見つかりました。「字幕・DRCS」で画像を確認し、代替文字を登録してください。":ready?"必要な変換ツールが見つかりました。TSを追加してはじめられます。":"FFmpeg・ffprobeと、選択したエンコーダーのパスを確認してください。";
    if(healthButton!=null)healthButton.Text=drcsPending>0?"字幕・DRCSを確認":"ツールの設定を開く";
    foreach(var j in client.Jobs.OrderByDescending(x=>x.Created)) {var row=rows.FirstOrDefault(x=>x.Id==j.Id);if(row==null)rows.Add(new JobRow(j));else row.Update(j);}
-   if(!client.WorkerAlive&&(client.Settings.WatchEnabled||client.Jobs.Any(j=>j.State==State.Waiting))&&(DateTime.UtcNow-lastWake).TotalSeconds>8){lastWake=DateTime.UtcNow;client.Wake();}
+   if(!client.WorkerAlive&&!client.Status.Paused&&(client.Settings.WatchEnabled||client.Jobs.Any(j=>j.State==State.Waiting))&&(DateTime.UtcNow-lastWake).TotalSeconds>8){lastWake=DateTime.UtcNow;client.Wake();}
    if(!string.IsNullOrEmpty(client.Status.Message))toast.Text=client.Status.Message;
   }catch(Exception ex){toast.Text=ex.Message;}finally{refreshing=false;}
  }

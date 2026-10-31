@@ -56,8 +56,7 @@ namespace TsEncodeFlow {
     if(encoded.ExitCode!=0)throw new InvalidDataException("変換失敗：終了コード"+encoded.ExitCode+"\n"+Tail(encoded.Error));
     if(p.EmbedMetadata||subtitle!=null) {
      j.Message="字幕・番組情報を動画に格納中";changed();muxed=Path.Combine(Path.GetDirectoryName(final),".mux-"+j.Id+Path.GetExtension(final));
-     var mux=Subtitles.Mux(s,p,j.Metadata,temp,subtitle,muxed);log(mux.ToString());var packed=await Processes.Run(mux.Exe,mux.Args,token,log);
-     if(packed.ExitCode!=0)throw new InvalidDataException("字幕・メタデータの格納失敗："+Tail(packed.Error));File.Delete(temp);temp=muxed;muxed=null;
+     subtitle=await Subtitles.Pack(j,s,temp,subtitle,muxed,token,log);File.Delete(temp);temp=muxed;muxed=null;
     }
     token.ThrowIfCancellationRequested();if(!File.Exists(temp)||new FileInfo(temp).Length<1024)throw new InvalidDataException("出力が空です。");
     j.Message="出力ファイルを検証中";changed();
@@ -67,14 +66,17 @@ namespace TsEncodeFlow {
     var video=MetadataReader.Items(data,"streams").Select(MetadataReader.Obj).FirstOrDefault(x=>MetadataReader.Text(x,"codec_type")=="video");
     if(video==null||MetadataReader.Int(video,"width")==0)throw new InvalidDataException("出力に有効な映像がありません。");
     if(j.Metadata.AudioIndex>=0&&!MetadataReader.Items(data,"streams").Select(MetadataReader.Obj).Any(x=>MetadataReader.Text(x,"codec_type")=="audio"))throw new InvalidDataException("出力から音声が失われています。");
-    if(subtitle!=null&&!MetadataReader.Items(data,"streams").Select(MetadataReader.Obj).Any(x=>MetadataReader.Text(x,"codec_type")=="subtitle"))throw new InvalidDataException("出力から字幕が失われています。");
+    if(subtitle!=null&&!MetadataReader.Items(data,"streams").Select(MetadataReader.Obj).Any(x=>MetadataReader.Text(x,"codec_type")=="subtitle")) {
+     if(!p.IgnoreSubtitleErrors)throw new InvalidDataException("出力から字幕が失われています。");
+     Subtitles.Warning(j,"出力に字幕がないため、字幕なしとして保存します。",log);j.Metadata.SubtitleStatus="字幕なしで保存";subtitle=null;
+    }
     var expected=Commands.Resolution(p,j.Metadata);if(expected!=null&&(MetadataReader.Int(video,"width")!=expected[0]||MetadataReader.Int(video,"height")!=expected[1]))throw new InvalidDataException("出力の解像度が指定と一致しません。");
     double duration=MetadataReader.Number(MetadataReader.Text(MetadataReader.Obj(data.ContainsKey("format")?data["format"]:null),"duration"));
     if(j.Metadata.Duration>5&&duration<j.Metadata.Duration*0.9-2)throw new InvalidDataException("出力時間が入力より短すぎます。");
     if(Store.Fingerprint(j.Input)!=fingerprint)throw new IOException("処理中に入力ファイルが更新されました。出力を確定しません。");
     File.Move(temp,final);temp=null;j.Output=final;j.Progress=100;
     Store.Save(final+".encode.json",new {input=j.Input,output=final,preset=p,metadata=j.Metadata,command=j.Command,finished=DateTime.Now,validation=MetadataReader.Obj(data.ContainsKey("format")?data["format"]:null)});
-    j.Message=j.Preset.KeepSubtitles&&subtitle==null?"完了（"+j.Metadata.SubtitleStatus+"・元TSを保持）":"完了（元TSを保持）";log(j.Message+"："+final);
+    j.Message=!string.IsNullOrEmpty(j.Metadata.SubtitleWarning)?"完了（字幕の警告あり・元TSを保持）":j.Preset.KeepSubtitles&&subtitle==null?"完了（"+j.Metadata.SubtitleStatus+"・元TSを保持）":"完了（元TSを保持）";log(j.Message+"："+final);
    }finally {
     reservation?.Dispose();foreach(string ownFile in new[]{reserve,temp,selected,muxed})if(ownFile!=null&&File.Exists(ownFile))try{File.Delete(ownFile);}catch(IOException){}
    }

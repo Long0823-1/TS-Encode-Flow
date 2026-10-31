@@ -41,6 +41,14 @@ namespace TsEncodeFlow {
   }
   static string Time(double seconds){var t=TimeSpan.FromMilliseconds(Math.Max(0,seconds*1000));return ((int)t.TotalHours).ToString("00")+":"+t.Minutes.ToString("00")+":"+t.Seconds.ToString("00")+","+t.Milliseconds.ToString("000");}
   public static async Task<string> Prepare(Job j,Settings s,string data,CancellationToken token,Action<string> log,Action changed) {
+   j.Metadata.SubtitleWarning="";
+   try{return await PrepareCore(j,s,data,token,log,changed);}
+   catch(Exception e)when(j.Preset.IgnoreSubtitleErrors&&(e is IOException||e is InvalidDataException||e is UnauthorizedAccessException||e is TimeoutException||e is System.ComponentModel.Win32Exception)) {
+    token.ThrowIfCancellationRequested();Warning(j,"字幕を省略："+e.Message,log);j.Metadata.SubtitleStatus="字幕エラーを無視して字幕なしで続行";changed();return null;
+   }
+  }
+  public static void Warning(Job j,string message,Action<string> log){j.Metadata.SubtitleWarning=message;log("字幕の警告："+message);}
+  static async Task<string> PrepareCore(Job j,Settings s,string data,CancellationToken token,Action<string> log,Action changed) {
    if(!j.Preset.KeepSubtitles){j.Metadata.SubtitleStatus="字幕保存OFF";return null;}if(j.Metadata.SubtitleIndex<0){j.Metadata.SubtitleStatus="字幕トラックなし";return null;}
    string hash=Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Store.Fingerprint(j.Input)+"|"+j.Metadata.SubtitleIndex)));
    string folder=Path.Combine(data,"Drcs","Scans",hash);Directory.CreateDirectory(folder);string subtitle=Path.Combine(folder,"subtitles.srt");
@@ -56,7 +64,10 @@ namespace TsEncodeFlow {
     }
     foreach(var glyph in scan.Glyphs){if(!Path.IsPathRooted(glyph.Image))glyph.Image=Path.Combine(folder,glyph.Image);var first=scan.Cues.FirstOrDefault(c=>c.Text.Contains("{{DRCS:"+glyph.Hash+"}}"));glyph.TimeSeconds=first==null?0:Math.Max(0,first.Pts/1000.0-j.Metadata.VideoStart);}
     j.Glyphs=scan.Glyphs;changed();var map=Drcs.Load(data);int unknown=scan.Glyphs.Count(g=>!Drcs.Resolved(g,map));
-    if(unknown>0)throw new DrcsPendingException("未対応のDRCSが"+unknown+"字あります。「字幕・DRCS」で画像と代替文字を確認してください。");
+    if(unknown>0) {
+     if(!j.Preset.IgnoreSubtitleErrors)throw new DrcsPendingException("未対応のDRCSが"+unknown+"字あります。「字幕・DRCS」で画像と代替文字を確認してください。");
+     Warning(j,"未対応のDRCS "+unknown+"字を � に置き換えて続行します。",log);
+    }
     j.Metadata.SubtitlePackets=scan.SubtitlePackets;
     string text=Srt(scan,j.Metadata,map);if(text.Length==0){if(scan.SubtitlePackets>0&&scan.DecodeErrors>0)throw new InvalidDataException("字幕データを正常にデコードできませんでした。字幕を黙って破棄せず停止します。");j.Metadata.SubtitleStatus=scan.SubtitlePackets==0?"字幕の実データなし":"表示する字幕文なし";log(j.Metadata.SubtitleStatus+"（字幕PIDのTSパケット数："+scan.SubtitlePackets+"）");return null;}
     j.Metadata.SubtitleStatus="日本語字幕を保存";File.WriteAllText(subtitle,text,new UTF8Encoding(false));log("ARIB字幕を抽出し、保存済みDRCS対応表を適用しました。");return subtitle;
@@ -74,6 +85,16 @@ namespace TsEncodeFlow {
    }
    if(p.Container==Container.mp4){a.AddRange(new[]{"-movflags","+faststart+use_metadata_tags"});if(p.Codec==Codec.HEVC)a.AddRange(new[]{"-tag:v","hvc1"});}
    a.Add(output);return c;
+  }
+  public static async Task<string> Pack(Job j,Settings s,string video,string subtitle,string output,CancellationToken token,Action<string> log,Func<Command,Task<ProcessResult>> run=null) {
+   run??=c=>Processes.Run(c.Exe,c.Args,token,log);
+   var command=Mux(s,j.Preset,j.Metadata,video,subtitle,output);log(command.ToString());var packed=await run(command);
+   if(packed.ExitCode!=0&&subtitle!=null&&j.Preset.IgnoreSubtitleErrors) {
+    token.ThrowIfCancellationRequested();Warning(j,"字幕の格納に失敗したため、字幕なしで格納し直します。",log);j.Metadata.SubtitleStatus="字幕格納エラーを無視して字幕なしで続行";
+    subtitle=null;command=Mux(s,j.Preset,j.Metadata,video,null,output);log(command.ToString());packed=await run(command);
+   }
+   if(packed.ExitCode!=0)throw new InvalidDataException("字幕・メタデータの格納失敗："+Converter.Tail(packed.Error));
+   return subtitle;
   }
  }
 }

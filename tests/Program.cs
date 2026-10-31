@@ -59,6 +59,19 @@ static partial class Tests {
    Check(Commands.Filters(new Preset {Deinterlace=Deinterlace.YadifBob},m).Contains("send_field"),"bob selects field output");
    Check(Converter.EncoderProgress("[22.3%] 12666 frames, GPU 20%, VE 99%") == 22.3,"GPU progress reads encode percentage rather than GPU utilization");
    foreach(var engine in new[]{Engine.NVEncC,Engine.VCEEncC,Engine.QSVEncC}){var cmd=Commands.Hardware(new Settings(),new Preset {Engine=engine,Width=1280,Height=720},m,"in.ts","out.mp4");Check(cmd.Args.Contains("--vpp-yadif")&&cmd.Args.Contains("1280x720")&&cmd.Args.Contains(engine==Engine.QSVEncC?"--icq":"--cqp"),"hardware builder "+engine);}
+   // Exercise the same inbox route as the UI, keeping conversion paused.
+   string retryInput=Path.Combine(root,"retry.ts"),retryData=Path.Combine(root,"RetryQueue");File.WriteAllText(retryInput,"fixture");
+   using(var retryQueue=new QueueManager(retryData)) {
+    retryQueue.Paused=true;var cancelledJob=retryQueue.Enqueue(retryInput);retryQueue.Cancel(cancelledJob.Id);
+    Check(cancelledJob.State==State.Cancelled,"queued job cancelled");
+    Check(retryQueue.Enqueue(retryInput,true)==null,"watcher respects cancelled history");
+    QueueManager.Submit(retryData,new[]{retryInput});retryQueue.Tick();
+    var replacement=retryQueue.Jobs.Last();Check(replacement.Id!=cancelledJob.Id&&replacement.State==State.Waiting,"UI inbox accepts same TS after cancellation");
+    QueueManager.Submit(retryData,new[]{retryInput});retryQueue.Tick();Check(retryQueue.Jobs.Count==2,"UI inbox still deduplicates waiting TS");
+    replacement.State=State.Running;QueueManager.Submit(retryData,new[]{retryInput});retryQueue.Tick();Check(retryQueue.Jobs.Count==2,"UI inbox still deduplicates running TS");
+    replacement.State=State.Completed;QueueManager.Submit(retryData,new[]{retryInput});retryQueue.Tick();Check(retryQueue.Jobs.Count==3,"UI inbox accepts intentional repeat after completion");
+    Check(File.Exists(retryInput)&&cancelledJob.State==State.Cancelled,"retry preserves original TS and cancellation history");
+   }
    if(args.Contains("--live"))Live(root,args).GetAwaiter().GetResult();
    if(args.Contains("--features"))Features(root,args).GetAwaiter().GetResult();
    if(args.Contains("--real"))Real(root,args).GetAwaiter().GetResult();

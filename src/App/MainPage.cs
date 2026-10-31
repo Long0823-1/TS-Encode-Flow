@@ -34,7 +34,7 @@ sealed class MainPage:ContentPage {
   foreach(var item in new[]{("ダッシュボード","◉"),("変換キュー","☷"),("プリセット","◈"),("字幕・DRCS","文"),("CM・タイムリスト","▥"),("自動化","↻"),("設定","⚙")}) {
    string name=item.Item1;var button=Pixel.Button(item.Item2+"   "+name,()=>Navigate(name));button.HorizontalOptions=LayoutOptions.Fill;button.Padding=new Thickness(18,14);nav[name]=button;links.Children.Add(button);
   }
-  rail.Add(links,0,1);rail.Add(Pixel.Stack(Pixel.Text("元のTSはそのまま",13,Pixel.Muted,true),Pixel.Text("0.5.1 · .NET MAUI",12,Pixel.Muted),Pixel.Button("Ko-fiで開発を応援",()=>Pickers.Open("https://ko-fi.com/long0823"))),0,2);root.Add(rail,0,0);
+  rail.Add(links,0,1);rail.Add(Pixel.Stack(Pixel.Text("元のTSはそのまま",13,Pixel.Muted,true),Pixel.Text("0.5.2 · .NET MAUI",12,Pixel.Muted),Pixel.Button("Ko-fiで開発を応援",()=>Pickers.Open("https://ko-fi.com/long0823"))),0,2);root.Add(rail,0,0);
   var main=new Grid {RowDefinitions=new RowDefinitionCollection {new(88),new(GridLength.Auto),new(GridLength.Star),new(34)},RowSpacing=12};
   var heading=new Grid {ColumnDefinitions=new ColumnDefinitionCollection {new(GridLength.Star),new(GridLength.Auto)}};heading.Add(Pixel.Stack(title,subtitle),0,0);heading.Add(Pixel.Button("＋ TSを追加",AddFiles,true),1,0);main.Add(heading,0,0);updateBanner.Content=Pixel.Card(Pixel.Stack(updateText,Pixel.Button("更新内容・ダウンロードを開く",()=>Pickers.Open(Updates.ReleasesUrl),true)),Pixel.Tint,16);main.Add(updateBanner,0,1);main.Add(body,0,2);main.Add(toast,0,3);root.Add(main,1,0);Content=root;
   var launchArgs=Environment.GetCommandLineArgs();int pageIndex=Array.IndexOf(launchArgs,"--page");Navigate(pageIndex>=0&&pageIndex+1<launchArgs.Length&&nav.ContainsKey(launchArgs[pageIndex+1])?launchArgs[pageIndex+1]:section);

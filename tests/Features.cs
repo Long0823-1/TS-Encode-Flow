@@ -51,15 +51,15 @@ static partial class Tests {
   }
   // Use the actual generated .bat and a filename containing cmd metacharacters.
   string input=Path.Combine(root,"録画 & 名前 !%PATH% 字.ts");var remux=await Processes.Run(settings.Ffmpeg,new[]{"-v","error","-y","-i",video,"-c","copy","-f","mpegts",input},CancellationToken.None,null,30);Check(remux.ExitCode==0,"BAT input fixture created");
-  string data=Path.Combine(root,"WorkerData");settings.QuietSeconds=3;settings.OutputFolder=Path.Combine(root,"BatchOutput");settings.BatPresetIndex=1;settings.Presets[1].Width=160;settings.Presets[1].Height=90;settings.Presets[1].Speed="ultrafast";Store.Save(Path.Combine(data,"settings.json"),settings);
+  string data=Path.Combine(root,"WorkerData");settings.QuietSeconds=60;File.SetLastWriteTimeUtc(input,DateTime.UtcNow.AddMinutes(-2));Store.Save(Path.Combine(data,"worker-status.json"),new WorkerStatus {Paused=true});settings.OutputFolder=Path.Combine(root,"BatchOutput");settings.BatPresetIndex=1;settings.Presets[1].Width=160;settings.Presets[1].Height=90;settings.Presets[1].Speed="ultrafast";Store.Save(Path.Combine(data,"settings.json"),settings);
   string bat=Path.Combine(root,"record-hook.bat");Integration.SaveBat(bat,worker,data,settings,settings.Presets[1]);
   settings.Presets[1].Width=256;settings.Presets[1].Height=144;Store.Save(Path.Combine(data,"settings.json"),settings);
   Check(File.Exists(bat+".profile.json")&&File.ReadAllText(bat).Contains("_EDCBX_DIRECT_"),"BAT and frozen preset profile generated");
   var psi=new ProcessStartInfo(Environment.GetEnvironmentVariable("ComSpec"),"/d /s /c \"\""+bat+"\"\""){UseShellExecute=false,CreateNoWindow=true};psi.Environment["FilePath"]=input;
   using(var process=Process.Start(psi)){Check(process.WaitForExit(15000)&&process.ExitCode==0,"EPGTimer-style BAT accepted special-character TS path");}
-  var deadline=DateTime.UtcNow.AddSeconds(60);System.Collections.Generic.List<Job> jobs;
+  var deadline=DateTime.UtcNow.AddSeconds(20);System.Collections.Generic.List<Job> jobs;
   do{await Task.Delay(500);jobs=Integration.ReadJobs(data);}while((jobs.Count==0||jobs.Any(j=>j.State==State.Waiting||j.State==State.Running))&&DateTime.UtcNow<deadline);
-  Check(jobs.Count==1&&jobs[0].State==State.Completed,"background worker completed BAT-submitted TS");Check(jobs[0].Input==input&&jobs[0].Preset.Width==160&&jobs[0].Preset.Height==90,"BAT retained literal path and preset snapshot");
+  Check(jobs.Count==1&&jobs[0].State==State.Completed,"BAT automatically resumes paused worker and starts old TS without another 60-second wait");Check(jobs[0].Input==input&&jobs[0].Preset.Width==160&&jobs[0].Preset.Height==90,"BAT retained literal path and preset snapshot");
   Integration.Send(data,"shutdown");var stopDeadline=DateTime.UtcNow.AddSeconds(10);do{await Task.Delay(250);}while(Integration.ReadStatus(data).Running&&DateTime.UtcNow<stopDeadline);Check(!Integration.ReadStatus(data).Running,"resident BAT worker shuts down cleanly");
  }
 }

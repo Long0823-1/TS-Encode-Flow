@@ -13,7 +13,7 @@ namespace TsEncodeFlow {
  public enum Container { mp4, mkv }
  public enum RateMode { Quality, VBR, CBR }
  public enum Deinterlace { None, Yadif, YadifBob, Bwdif, BwdifBob }
- public enum State { Waiting, Running, Completed, Failed, Cancelled, Interrupted, NeedsInput, NeedsCmReview }
+ public enum State { Waiting, Running, Completed, Failed, Cancelled, Interrupted, NeedsInput, NeedsCmReview, NeedsLogo }
  [TypeConverter(typeof(ExpandableObjectConverter))]
  public sealed class Preset {
   [Browsable(false)] public string FactoryId {get;set;}="";

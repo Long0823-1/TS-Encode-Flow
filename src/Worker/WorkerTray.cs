@@ -15,7 +15,7 @@ sealed class WorkerTray:ApplicationContext {
  public int Result {get;private set;}
  public WorkerTray(string folder,Func<CancellationToken,int> run) {
   data=folder;string gui=GuiPath;Icon drawing=File.Exists(gui)?Icon.ExtractAssociatedIcon(gui):null;
-  var menu=new ContextMenuStrip();menu.Items.Add("GUIを開く",null,async(s,e)=>await OpenGui("ダッシュボード"));menu.Items.Add("変換キューを開く",null,async(s,e)=>await OpenGui("変換キュー"));menu.Items.Add("字幕・DRCSを開く",null,async(s,e)=>await OpenGui("字幕・DRCS"));menu.Items.Add("CM・タイムリストを開く",null,async(s,e)=>await OpenGui("CM・タイムリスト"));menu.Items.Add(new ToolStripSeparator());menu.Items.Add(state);
+  var menu=new ContextMenuStrip();menu.Items.Add("GUIを開く",null,async(s,e)=>await OpenGui("ダッシュボード"));menu.Items.Add("変換キューを開く",null,async(s,e)=>await OpenGui("変換キュー"));menu.Items.Add("字幕・DRCSを開く",null,async(s,e)=>await OpenGui("字幕・DRCS"));menu.Items.Add("CM・タイムリストを開く",null,async(s,e)=>await OpenGui("CM・タイムリスト"));menu.Items.Add("放送局ロゴを開く",null,async(s,e)=>await OpenGui("放送局ロゴ"));menu.Items.Add(new ToolStripSeparator());menu.Items.Add(state);
   menu.Items.Add("処理を再開",null,(s,e)=>Integration.Send(data,"resume"));menu.Items.Add("新規開始を一時停止",null,(s,e)=>Integration.Send(data,"pause"));menu.Items.Add(new ToolStripSeparator());menu.Items.Add(exit);
   icon=new NotifyIcon {Icon=drawing??SystemIcons.Application,Text="TS Encode Flow · 起動中",ContextMenuStrip=menu,Visible=true};
   icon.DoubleClick+=async(s,e)=>await OpenGui("変換キュー");icon.BalloonTipClicked+=async(s,e)=>await OpenGui(pendingPage);
@@ -41,11 +41,11 @@ sealed class WorkerTray:ApplicationContext {
   if(stop.IsCancellationRequested)return;
   try {
    var status=Integration.ReadStatus(data);var jobs=Integration.ReadJobs(data);
-   var pending=jobs.Where(j=>j.State==State.NeedsInput||j.State==State.NeedsCmReview).ToList();pendingPage=pending.Any(j=>j.State==State.NeedsCmReview)?"CM・タイムリスト":"字幕・DRCS";int waiting=jobs.Count(j=>j.State==State.Waiting);
+   var pending=jobs.Where(j=>j.State==State.NeedsLogo||j.State==State.NeedsInput||j.State==State.NeedsCmReview).ToList();pendingPage=pending.Any(j=>j.State==State.NeedsLogo)?"放送局ロゴ":pending.Any(j=>j.State==State.NeedsCmReview)?"CM・タイムリスト":"字幕・DRCS";int waiting=jobs.Count(j=>j.State==State.Waiting);
    string text=status.Paused?"一時停止中":status.Active>0?status.Active+"本を変換中":pending.Count>0?"確認待ち "+pending.Count+"本":waiting>0?"開始待ち "+waiting+"本":"待機中";
    state.Text=text;icon.Text="TS Encode Flow · "+text;
    string ids=string.Join(",",pending.Select(j=>j.Id).OrderBy(x=>x));
-   if(ids.Length>0&&ids!=lastPending){icon.ShowBalloonTip(8000,"CM・字幕の確認が必要です",pending.Count+"本が確認待ちです。クリックすると確認画面を開きます。",ToolTipIcon.Warning);}lastPending=ids;
+   if(ids.Length>0&&ids!=lastPending){icon.ShowBalloonTip(8000,"ロゴ・CM・字幕の確認が必要です",pending.Count+"本が確認待ちです。クリックすると確認画面を開きます。",ToolTipIcon.Warning);}lastPending=ids;
   }catch(IOException){state.Text="状態を読み直しています…";}
  }
  protected override void Dispose(bool disposing) {

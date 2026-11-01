@@ -16,7 +16,7 @@ namespace TsEncodeFlow {
   public static async Task Convert(Job j,Settings settings,CancellationToken token,Action<string> log,Action changed) {
    Commands.Validate(j.Preset);if(!WritableRecording(j.Input))throw new IOException("入力が録画中または読み取りできません。");
    string fingerprint=Store.Fingerprint(j.Input);
-   j.Metadata=await MetadataReader.Read(j.Input,settings,j.Preset.ServiceId,token,log);changed();
+   j.Metadata=await MetadataReader.Read(j.Input,settings,j.Preset.ServiceId,token,log);if(Store.Fingerprint(j.Input)!=fingerprint)throw new IOException("入力解析中にTSが変更されました。再試行してください。");j.Fingerprint=fingerprint;changed();
    j.Message="字幕・DRCSを確認中";changed();
    string dataFolder=Path.GetDirectoryName(Path.GetDirectoryName(j.LogFile));
    j.Message="CM区間を確認中";changed();await Commercials.Prepare(j,settings,dataFolder,token,log,changed);

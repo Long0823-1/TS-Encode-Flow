@@ -8,12 +8,13 @@ sealed class JobRow:INotifyPropertyChanged {
  public string Id=>Job.Id;
  public string Title=>Job.Metadata?.Title??Path.GetFileName(Job.Input);
  public string Detail=>Job.Preset.Name+" · "+PresetCatalog.EngineName(Job.Preset.Engine)+" · "+Job.Preset.Codec+" · "+Job.Preset.Container+" · "+PresetCatalog.ResolutionName(Job.Preset);
- public string Status=>Job.State switch {State.Waiting=>"開始待ち",State.Running=>"変換中",State.Completed=>"完了",State.Failed=>"失敗",State.Cancelled=>"中止",State.NeedsInput=>"DRCS入力待ち",State.NeedsCmReview=>"CM確認待ち",_=>"中断"};
+ public string Status=>Job.State switch {State.Waiting=>"開始待ち",State.Running=>"変換中",State.Completed=>"完了",State.Failed=>"失敗",State.Cancelled=>"中止",State.NeedsInput=>"DRCS入力待ち",State.NeedsCmReview=>"CM確認待ち",State.NeedsLogo=>"ロゴ範囲指定待ち",_=>"中断"};
  public Color StatusColor=>Job.State==State.Failed?Color.FromArgb("#A6362B"):Job.State==State.Completed?Color.FromArgb("#167349"):Pixel.Blue;
  public string Message=>Job.Message;
  public double Progress=>Job.Progress/100;
  public string Percent=>Job.Progress.ToString("0")+"%";
- public bool CanCancel=>Job.State==State.Waiting||Job.State==State.Running;
+ public bool CanConfigureLogo=>Job.State==State.NeedsLogo;
+ public bool CanCancel=>Job.State==State.Waiting||Job.State==State.Running||Job.State==State.NeedsLogo;
  public bool CanChangePreset=>Job.State==State.Cancelled;
  public bool CanRetry=>Job.State==State.Failed||Job.State==State.Cancelled||Job.State==State.Interrupted||Job.State==State.NeedsInput;
  public bool CanReviewCm=>Job.Commercials!=null;
@@ -37,9 +38,10 @@ sealed class JobCard:ContentView {
   var retry=Pixel.Button("再試行",()=>{if(BindingContext is JobRow row)client.Send("retry",row.Id);});retry.SetBinding(IsVisibleProperty,nameof(JobRow.CanRetry));
   var ignore=Pixel.Button("字幕の問題を無視して再試行",()=>{if(BindingContext is JobRow row)client.Send("retry-ignore-subtitles",row.Id);});ignore.SetBinding(IsVisibleProperty,nameof(JobRow.CanIgnoreSubtitles));
   var review=Pixel.Button("CM・タイムリストを確認",async()=>{var page=new ContentPage {Title="CM・タイムリスト",Content=new CommercialView(client,_=>{})};await Application.Current!.Windows[0].Page!.Navigation.PushAsync(page);});review.SetBinding(IsVisibleProperty,nameof(JobRow.CanReviewCm));
+  var logo=Pixel.Button("ロゴ範囲を指定",async()=>{if(BindingContext is JobRow row)await LogoAreaPage.Open(client,row.Job);},true);logo.SetBinding(IsVisibleProperty,nameof(JobRow.CanConfigureLogo));
   var open=Pixel.Button("出力先",()=>{if(BindingContext is JobRow row)Pickers.Open(Path.GetDirectoryName(row.Job.Output)!);});open.SetBinding(IsVisibleProperty,nameof(JobRow.CanOpen));
   var info=Pixel.Button("詳細",async()=>{if(BindingContext is JobRow row)await Details(row.Job);});
-  Content=Pixel.Card(Pixel.Stack(top,detail,progress,Pixel.Row(percent,cancel,retry,open,info),change,ignore,review,message));Margin=new Thickness(0,0,0,14);
+  Content=Pixel.Card(Pixel.Stack(top,detail,progress,Pixel.Row(percent,cancel,retry,open,info),change,ignore,logo,review,message));Margin=new Thickness(0,0,0,14);
  }
  static async Task ChangePreset(EngineClient client,Job job) {
   var choices=client.Settings.Presets.ToList();var picker=new Picker {Title="このジョブのプリセット",ItemsSource=choices.Select(p=>PresetCatalog.EngineName(p.Engine)+" · "+p.Name+(string.IsNullOrEmpty(p.FactoryId)?"（カスタム）":"")).ToList()};

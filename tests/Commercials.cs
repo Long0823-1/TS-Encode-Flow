@@ -9,6 +9,7 @@ using TsEncodeFlow;
 
 static partial class Tests {
  static async Task CmTests(string root) {
+  await StationLogoTests(root);
   var fallbackPreset=new Preset {CmFallbackWithoutLogo=true};var fallbackLog=new List<string>();
   Check(await CmLogoFallback.UseLogo(fallbackPreset,true,()=>Task.FromResult(true),CancellationToken.None,fallbackLog.Add),"logo success keeps logo analysis even with fallback enabled");
   Check(!await CmLogoFallback.UseLogo(fallbackPreset,true,()=>Task.FromResult(false),CancellationToken.None,fallbackLog.Add)&&fallbackLog.Count==1&&!fallbackPreset.CmNoLogo,"automatic logo failure falls back only when enabled and preserves preset mode");
@@ -60,6 +61,15 @@ static partial class Tests {
   var generate=await Processes.Run(ffmpeg,new[]{"-hide_banner","-y","-f","lavfi","-i",colors,"-f","lavfi","-i","sine=frequency=440:sample_rate=48000","-t","20","-c:v","mpeg2video","-b:v","2000k","-c:a","aac","-f","mpegts",input},CancellationToken.None,null,60);Check(generate.ExitCode==0,"CM test MPEG-TS fixture created");
   File.WriteAllText(input+".edl","5 10 0\n15 18 0\n");File.WriteAllText(input+".program.txt","2026/10/31(土) 13:00～13:01\r\nテスト局\r\nCMテスト番組\r\n\r\n説明\r\n",Encoding.GetEncoding(932));
   string vce=args.Contains("--vce")?Option(args,"--vce"):null;
+  // CM OFF must not touch the logo tools, even with automatic CM source and an EDL present.
+  var off=new Job {Input=input,Preset=new Preset {Engine=vce==null?Engine.CPU:Engine.VCEEncC,Speed=vce==null?"ultrafast":"balanced",Threads=2,CmMode=CmMode.Off,CmSource=CmSource.Amatsukaze,Width=320,Height=180},OutputFolder=Path.Combine(root,"off-output"),FileName="{OriginalName}",LogFile=Path.Combine(root,"OffData","Logs","off.log")};
+  var offSettings=new Settings {Ffmpeg=ffmpeg,Ffprobe=probe,Vceenc=vce??"",ChapterExe="missing.exe",LogoFrame="missing.exe"};
+  await Converter.Convert(off,offSettings,CancellationToken.None,_=>{},()=>{});
+  Check(off.Commercials==null&&File.Exists(off.Output)&&!Directory.Exists(Path.Combine(root,"OffData","Logos")),"CM OFF encodes unregistered station without logo tools or region prompt");
+  var offProbe=await Processes.Run(probe,new[]{"-v","error","-show_streams","-show_format","-show_chapters","-of","json",off.Output},CancellationToken.None,null,30);var offJson=Store.Json.Deserialize<Dictionary<string,object>>(offProbe.Output);
+  Check(Math.Abs(MetadataReader.Number(MetadataReader.Text(MetadataReader.Obj(offJson["format"]),"duration"))-20)<.2&&!MetadataReader.Items(offJson,"chapters").Any(),"CM OFF keeps full duration without CM chapters");
+  Check(MetadataReader.Items(offJson,"streams").Select(MetadataReader.Obj).Any(s=>MetadataReader.Text(s,"codec_type")=="audio"),"CM OFF retains audio");
+  var offDecode=await Processes.Run(ffmpeg,new[]{"-v","error","-xerror","-i",off.Output,"-map","0:v","-map","0:a","-f","null","-"},CancellationToken.None,null,60);Check(offDecode.ExitCode==0&&string.IsNullOrWhiteSpace(offDecode.Error),"CM OFF full output decodes without errors");
   foreach(var mode in new[]{CmMode.Cut,CmMode.Chapters}) {
    var preset=new Preset {Name="CM test",CmMode=mode,CmReview=false,Width=320,Height=180,Speed=vce==null?"ultrafast":"balanced",Engine=vce==null?Engine.CPU:Engine.VCEEncC,Threads=2};
    var settings=new Settings {Ffmpeg=ffmpeg,Ffprobe=probe,Vceenc=vce??""};var j=new Job {Input=input,Preset=preset,OutputFolder=Path.Combine(root,"cm-output"),FileName="{OriginalName}_"+mode,LogFile=Path.Combine(root,"Data","Logs",mode+".log")};

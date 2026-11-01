@@ -14,6 +14,8 @@ namespace TsEncodeFlow {
   public static async Task<CmPlan> Analyze(Job job,Settings settings,string data,CancellationToken token,Action<string> log,Action changed) {
    token.ThrowIfCancellationRequested();StationLogos.Require(data,job,settings);
    string chapter=settings.ChapterExe,logoExe=settings.LogoFrame;
+   string bundled=Path.Combine(AppContext.BaseDirectory,"Tools","CmLogo","logoframe.exe"),managed=Path.GetFullPath(Path.Combine(data,"Tools","logoframe"))+Path.DirectorySeparatorChar;
+   if(File.Exists(bundled)&&(string.IsNullOrWhiteSpace(logoExe)||Path.GetFullPath(logoExe).StartsWith(managed,StringComparison.OrdinalIgnoreCase)))logoExe=bundled;
    if(!File.Exists(chapter)||!File.Exists(logoExe))throw new FileNotFoundException("設定でCM解析ツールとlogoframeをダウンロードして適用してください。");
    string bin=Path.GetDirectoryName(chapter),root=Path.GetDirectoryName(bin),jls=Path.Combine(bin,"join_logo_scp.exe"),plugin=Path.Combine(bin,"plugins64","LSMASHSource.dll"),script=string.IsNullOrWhiteSpace(settings.JoinLogoScript)?Path.Combine(root,"JL","JL_標準.txt"):settings.JoinLogoScript;
    foreach(string file in new[]{jls,plugin,script,Path.Combine(bin,"AviSynth.dll")})if(!File.Exists(file))throw new FileNotFoundException("CM解析の依存ファイルがありません。ツールを再ダウンロードしてください。",file);
@@ -90,7 +92,22 @@ namespace TsEncodeFlow {
     using var stationLease=string.IsNullOrWhiteSpace(settings.CmLogo)&&StationLogos.Find(data,job)==null?await StationLogos.Lock(data,job,token):null;
     job.Message="放送局ロゴを検出中（登録済みロゴ・範囲を使用）";changed();var logoArgs=new List<string>{avs,"-oa",logoOutput};
     if(!string.IsNullOrWhiteSpace(settings.CmLogo)){if(!File.Exists(settings.CmLogo))throw new FileNotFoundException("指定されたロゴLGDがありません。",settings.CmLogo);logoArgs.AddRange(new[]{"-logo",settings.CmLogo});}
-    else {string cached=StationLogos.Find(data,job);if(cached!=null){log("保存済み局ロゴ："+cached);logoArgs.AddRange(new[]{"-logo",cached});}else {var area=StationLogos.Read(data,job).Area;if(area==null)throw new LogoAreaRequiredException();area.Validate(job.Metadata);logoArgs.AddRange(new[]{"-channel",StationLogos.Key(job),"-logo-dir",Path.Combine(data,"Logos"),"-logo-area",area.ToString()});log("指定範囲から局ロゴを作成："+area);}}
+    else {
+     string cached=StationLogos.Find(data,job);
+     if(cached==null) {
+      var area=StationLogos.Read(data,job).Area;if(area==null)throw new LogoAreaRequiredException();area.Validate(job.Metadata);
+      string candidateData=Path.Combine(work,"LogoCandidate");Directory.CreateDirectory(Path.Combine(candidateData,"Logos"));
+      log("指定範囲から局ロゴ候補を作成："+area);
+      var generated=await Processes.Run(logoExe,new[]{avs,"-channel",StationLogos.Key(job),"-logo-dir",Path.Combine(candidateData,"Logos"),"-logo-area",area.ToString(),"-logo-generate-only"},token,log);
+      token.ThrowIfCancellationRequested();if(generated.ExitCode!=0)return false;
+      if(Store.Fingerprint(job.Input)+"|"+job.Metadata.VideoIndex!=identityValue)throw new IOException("ロゴ生成中に入力TSが変更されました。");
+      job.LogoCandidate=StationLogos.Find(candidateData,job);if(job.LogoCandidate==null)return false;LogoCandidates.Read(job.LogoCandidate,job.Metadata);
+      cached=StationLogos.Find(data,job);
+      if(cached==null&&(generated.Output+generated.Error).Contains("CMLOGO_REVIEW_REQUIRED")){changed();throw new LogoReviewException();}
+      if(cached==null)cached=LogoCandidates.Promote(data,job);job.LogoCandidate="";
+     }
+     log("保存済み局ロゴ："+cached);logoArgs.AddRange(new[]{"-logo",cached});
+    }
     var logo=await Processes.Run(logoExe,logoArgs,token,log);return logo.ExitCode==0&&File.Exists(logoOutput)&&new FileInfo(logoOutput).Length>0;
    },token,log);
    job.Message="chapter_exeで無音・シーンチェンジを検出中";changed();var chapterArgs=new List<string>{"-v",avs,"-o",chapters};if(job.Metadata.Fps>=50)chapterArgs.AddRange(new[]{"-s","20"});

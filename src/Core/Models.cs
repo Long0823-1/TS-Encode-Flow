@@ -13,7 +13,7 @@ namespace TsEncodeFlow {
  public enum Container { mp4, mkv }
  public enum RateMode { Quality, VBR, CBR }
  public enum Deinterlace { None, Yadif, YadifBob, Bwdif, BwdifBob }
- public enum State { Waiting, Running, Completed, Failed, Cancelled, Interrupted, NeedsInput, NeedsCmReview, NeedsLogo }
+ public enum State { Waiting, Running, Completed, Failed, Cancelled, Interrupted, NeedsInput, NeedsCmReview, NeedsLogo, NeedsLogoReview }
  [TypeConverter(typeof(ExpandableObjectConverter))]
  public sealed class Preset {
   [Browsable(false)] public string FactoryId {get;set;}="";
@@ -120,6 +120,7 @@ namespace TsEncodeFlow {
   public string OutputFolder,FileName;
   public Metadata Metadata;
   public CmPlan Commercials;
+  public string LogoCandidate="";
   public List<DrcsGlyph> Glyphs=new List<DrcsGlyph>();
  }
  public static class Store {

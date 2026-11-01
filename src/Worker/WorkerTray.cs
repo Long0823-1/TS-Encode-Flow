@@ -41,7 +41,7 @@ sealed class WorkerTray:ApplicationContext {
   if(stop.IsCancellationRequested)return;
   try {
    var status=Integration.ReadStatus(data);var jobs=Integration.ReadJobs(data);
-   var pending=jobs.Where(j=>j.State==State.NeedsLogo||j.State==State.NeedsInput||j.State==State.NeedsCmReview).ToList();pendingPage=pending.Any(j=>j.State==State.NeedsLogo)?"放送局ロゴ":pending.Any(j=>j.State==State.NeedsCmReview)?"CM・タイムリスト":"字幕・DRCS";int waiting=jobs.Count(j=>j.State==State.Waiting);
+   var pending=jobs.Where(j=>(j.State==State.NeedsLogo||j.State==State.NeedsLogoReview)||j.State==State.NeedsInput||j.State==State.NeedsCmReview).ToList();pendingPage=pending.Any(j=>(j.State==State.NeedsLogo||j.State==State.NeedsLogoReview))?"放送局ロゴ":pending.Any(j=>j.State==State.NeedsCmReview)?"CM・タイムリスト":"字幕・DRCS";int waiting=jobs.Count(j=>j.State==State.Waiting);
    string text=status.Paused?"一時停止中":status.Active>0?status.Active+"本を変換中":pending.Count>0?"確認待ち "+pending.Count+"本":waiting>0?"開始待ち "+waiting+"本":"待機中";
    state.Text=text;icon.Text="TS Encode Flow · "+text;
    string ids=string.Join(",",pending.Select(j=>j.Id).OrderBy(x=>x));

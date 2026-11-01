@@ -20,7 +20,7 @@ sealed class LogoAreaPage:ContentPage {
   preview.CancelInteraction+=(s,e)=>dragging=false;
   foreach(var entry in new[]{x,y,w,h})entry.WidthRequest=90;
   save=Pixel.Button("この局の範囲を保存して再開",Save,true);save.IsEnabled=false;
-  var controls=Pixel.Stack(Pixel.Text((job.Metadata.Channel.Length>0?job.Metadata.Channel:"局名不明")+" · "+job.Metadata.Width+" × "+job.Metadata.Height,22,null,true),Pixel.Text("ロゴが見える本編を表示し、ロゴと少しの余白を囲んでください。元映像の座標で保存し、同じ局・解像度で再利用します。CM中などロゴがない場面は時間を変えてください。",14,Pixel.Muted),Pixel.Row(Pixel.Text("表示位置（秒）"),seconds,Pixel.Button("プレビューを表示",Load)),selected,Pixel.Row(Pixel.Field("X",x),Pixel.Field("Y",y),Pixel.Field("幅",w),Pixel.Field("高さ",h)),Pixel.Row(save,Pixel.Button("閉じる",async()=>await Navigation.PopModalAsync())));
+  var controls=Pixel.Stack(Pixel.Text((job.Metadata.Channel.Length>0?job.Metadata.Channel:"局名不明")+" · "+job.Metadata.Width+" × "+job.Metadata.Height,22,null,true),Pixel.Text("ロゴが見える本編を表示し、番組テロップを避け、局ロゴの見える部分と少しの余白だけを囲んでください。元映像の座標で保存し、同じ局・解像度で再利用します。CM中などロゴがない場面は時間を変えてください。",14,Pixel.Muted),Pixel.Row(Pixel.Text("表示位置（秒）"),seconds,Pixel.Button("プレビューを表示",Load)),selected,Pixel.Row(Pixel.Field("X",x),Pixel.Field("Y",y),Pixel.Field("幅",w),Pixel.Field("高さ",h)),Pixel.Row(save,Pixel.Button("閉じる",async()=>await Navigation.PopModalAsync())));
   seconds.WidthRequest=100;
   var layout=new Grid {RowDefinitions=new RowDefinitionCollection {new(GridLength.Star),new(GridLength.Auto)},RowSpacing=16};layout.Add(preview,0,0);layout.Add(Pixel.Scroll(controls),0,1);Content=layout;
   Loaded+=async(s,e)=>{try{await Load();}catch(Exception ex){Pixel.LogError("ロゴプレビュー",ex);selected.Text=ex.Message;}};
@@ -70,8 +70,9 @@ sealed class StationLogosView:ContentView {
   var rows=Pixel.Stack(Pixel.Text("未登録の局だけ、一度ロゴを囲む",24,null,true),Pixel.Text("ロゴは放送局IDと元映像の解像度ごとに保存します。既存のLGDも再利用します。BATで追加した録画も、ここで指定してから自動処理を再開できます。",14,Pixel.Muted),Pixel.Button("一覧を更新",()=>Content=Build(client)),Pixel.Button("保存フォルダーを開く",()=>{var p=Path.Combine(client.Data,"Logos");Directory.CreateDirectory(p);Pickers.Open(p);}));
   client.Refresh();var groups=client.Jobs.Where(j=>j.Metadata!=null).GroupBy(j=>StationLogos.Key(j)).OrderBy(g=>g.Key).ToList();
   foreach(var group in groups) {
-   var pending=group.FirstOrDefault(j=>StationLogos.CanConfigure(client.Data,j,client.Settings));var job=pending??group.First();string? logo=StationLogos.Find(client.Data,job);var area=StationLogos.Read(client.Data,job).Area;
-   var card=Pixel.Stack(Pixel.Text((string.IsNullOrWhiteSpace(job.Metadata.Channel)?"局名不明":job.Metadata.Channel)+" · "+job.Metadata.Width+" × "+job.Metadata.Height,18,null,true),Pixel.Text(group.Key,12,Pixel.Muted),Pixel.Text(logo!=null?"登録済み："+Path.GetFileName(logo):area!=null?"範囲登録済み："+area:"ロゴ未登録・範囲の指定が必要",14,Pixel.Muted));
+   var review=group.FirstOrDefault(j=>j.State==State.NeedsLogoReview);var pending=group.FirstOrDefault(j=>StationLogos.CanConfigure(client.Data,j,client.Settings));var job=review??pending??group.First();string? logo=StationLogos.Find(client.Data,job);var area=StationLogos.Read(client.Data,job).Area;
+   var card=Pixel.Stack(Pixel.Text((string.IsNullOrWhiteSpace(job.Metadata.Channel)?"局名不明":job.Metadata.Channel)+" · "+job.Metadata.Width+" × "+job.Metadata.Height,18,null,true),Pixel.Text(group.Key,12,Pixel.Muted),Pixel.Text(review!=null?"生成画像の確認待ち（まだ局ロゴには登録していません）":logo!=null?"登録済み："+Path.GetFileName(logo):area!=null?"範囲登録済み："+area:"ロゴ未登録・範囲の指定が必要",14,Pixel.Muted));
+   if(review!=null)card.Children.Add(Pixel.Button("生成ロゴを確認",async()=>{await LogoReviewPage.Open(client,review);Content=Build(client);},true));
    if(pending!=null)card.Children.Add(Pixel.Button("ロゴ範囲を指定",async()=>{await LogoAreaPage.Open(client,pending);Content=Build(client);},true));rows.Children.Add(Pixel.Card(card));
   }
   var saved=StationLogos.List(client.Data).Where(s=>!groups.Any(g=>g.Key==s.Key)).ToList();

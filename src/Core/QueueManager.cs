@@ -35,7 +35,7 @@ namespace TsEncodeFlow {
    Settings.Validate();string fingerprint=Store.Fingerprint(path);
    lock(gate) {
     if(automatic&&processed.Contains(fingerprint))return null;
-    if(Jobs.Any(j=>string.Equals(j.Input,path,StringComparison.OrdinalIgnoreCase)&&(j.State==State.Waiting||j.State==State.Running||j.State==State.NeedsLogo||automatic&&j.Fingerprint==fingerprint)))return null;
+    if(Jobs.Any(j=>string.Equals(j.Input,path,StringComparison.OrdinalIgnoreCase)&&(j.State==State.Waiting||j.State==State.Running||j.State==State.NeedsLogo||j.State==State.NeedsLogoReview||automatic&&j.Fingerprint==fingerprint)))return null;
     var p=presetOverride??Settings.Presets[Math.Min(Math.Max(0,Settings.SelectedPreset),Settings.Presets.Count-1)];Commands.Validate(p);
     var job=new Job {Input=path,Fingerprint=fingerprint,Preset=Store.Clone(p),OutputFolder=Path.GetFullPath(outputFolder??Settings.OutputFolder),FileName=fileName??Settings.FileName};
     job.LogFile=Path.Combine(DataFolder,"Logs",job.Id+".log");Jobs.Add(job);Save();return job;
@@ -59,7 +59,7 @@ namespace TsEncodeFlow {
   public void Tick() {
    foreach(string request in Directory.EnumerateFiles(Path.Combine(DataFolder,"Inbox"),"*.json").Take(100))try {
     var value=Store.Load<Request>(request,()=>new Request());
-    if(value.Action=="set-logo-area")SetLogoArea(value);else if(value.Action=="approve-cm")ApproveCm(value);else if(value.Action=="change-preset")ChangePreset(value.JobId,value.Profile?.Preset);else if(value.Action=="clear-history")ClearHistory();else if(value.Action=="shutdown"){StopRequested=true;Paused=true;}else if(value.Action=="retry-ignore-subtitles")Retry(value.JobId,true);else if(value.Action=="cancel")Cancel(value.JobId);else if(value.Action=="retry")Retry(value.JobId);else if(value.Action=="pause")Paused=true;else if(value.Action=="resume")Paused=false;else {var added=Enqueue(value.Path,false,value.Profile?.Preset,value.Profile?.OutputFolder,value.Profile?.FileName);if(added==null)Notice?.Invoke("同じTSはすでに待機中または変換中です。キューを確認してください。");else if(!StopRequested)Paused=false;}
+    if(value.Action=="approve-logo")ReviewLogo(value,true);else if(value.Action=="reject-logo")ReviewLogo(value,false);else if(value.Action=="set-logo-area")SetLogoArea(value);else if(value.Action=="approve-cm")ApproveCm(value);else if(value.Action=="change-preset")ChangePreset(value.JobId,value.Profile?.Preset);else if(value.Action=="clear-history")ClearHistory();else if(value.Action=="shutdown"){StopRequested=true;Paused=true;}else if(value.Action=="retry-ignore-subtitles")Retry(value.JobId,true);else if(value.Action=="cancel")Cancel(value.JobId);else if(value.Action=="retry")Retry(value.JobId);else if(value.Action=="pause")Paused=true;else if(value.Action=="resume")Paused=false;else {var added=Enqueue(value.Path,false,value.Profile?.Preset,value.Profile?.OutputFolder,value.Profile?.FileName);if(added==null)Notice?.Invoke("同じTSはすでに待機中または変換中です。キューを確認してください。");else if(!StopRequested)Paused=false;}
     File.Delete(request);
    }catch(Exception e){Notice?.Invoke("追加失敗："+e.Message);try{File.Move(request,request+".error");}catch(IOException){}}
    if(Settings.WatchEnabled&&(DateTime.UtcNow-lastScan).TotalSeconds>=3) {
@@ -84,6 +84,7 @@ namespace TsEncodeFlow {
      object logGate=new object();Directory.CreateDirectory(Path.GetDirectoryName(j.LogFile));
      Action<string> log=line=>{lock(logGate)File.AppendAllText(j.LogFile,DateTime.Now.ToString("HH:mm:ss ")+line+Environment.NewLine,Encoding.UTF8);};
      try{await Converter.Convert(j,config,cancellation.Token,log,Save);j.State=State.Completed;}
+     catch(LogoReviewException e){j.State=State.NeedsLogoReview;j.Message=e.Message;log(j.Message);}
      catch(LogoAreaRequiredException e){j.State=State.NeedsLogo;j.Message=e.Message;log(j.Message);}
      catch(CmReviewException e){j.State=State.NeedsCmReview;j.Message=e.Message;log(j.Message);}
      catch(DrcsPendingException e){j.State=State.NeedsInput;j.Message=e.Message;log(j.Message);}
@@ -104,7 +105,15 @@ namespace TsEncodeFlow {
    }
   }
   public void Cancel(string id) {
-   lock(gate){CancellationTokenSource source;if(active.TryGetValue(id,out source))source.Cancel();else{var j=Jobs.FirstOrDefault(x=>x.Id==id);if(j!=null&&(j.State==State.Waiting||j.State==State.NeedsLogo)){j.State=State.Cancelled;j.Message="待機を中止しました。";}}Save();}
+   lock(gate){CancellationTokenSource source;if(active.TryGetValue(id,out source))source.Cancel();else{var j=Jobs.FirstOrDefault(x=>x.Id==id);if(j!=null&&(j.State==State.Waiting||j.State==State.NeedsLogo||j.State==State.NeedsLogoReview)){j.State=State.Cancelled;j.Message="待機を中止しました。";}}Save();}
+  }
+  public void ReviewLogo(Request request,bool approve) {
+   lock(gate) {
+    var j=Jobs.FirstOrDefault(j=>j.Id==request.JobId);if(j==null||j.State!=State.NeedsLogoReview||active.ContainsKey(j.Id))throw new ArgumentException("生成ロゴの確認待ちではありません。");
+    if(request.Fingerprint!=j.Fingerprint||request.Fingerprint!=Store.Fingerprint(j.Input))throw new ArgumentException("入力TSが更新されています。中止後に再試行してください。");
+    if(approve){LogoCandidates.Promote(DataFolder,j);string key=StationLogos.Key(j);foreach(var pending in Jobs.Where(x=>(x.State==State.NeedsLogo||x.State==State.NeedsLogoReview)&&x.Metadata!=null&&!active.ContainsKey(x.Id)&&StationLogos.Key(x)==key)){pending.State=State.Waiting;pending.LogoCandidate="";pending.Message="生成ロゴを登録しました。自動開始待ち";}Paused=false;}else{j.State=State.NeedsLogo;j.Message="ロゴ候補を登録せず、範囲の選び直しを待っています。";}
+    j.LogoCandidate="";Save();
+   }
   }
   public void SetLogoArea(Request request) {
    lock(gate) {

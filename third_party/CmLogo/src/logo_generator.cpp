@@ -506,7 +506,8 @@ bool estimate_background(
     const InputVideoFrame &frame,
     const LogoRect &rect,
     int threshold,
-    int *background) {
+    int *background,
+    bool tolerate_border_outliers = false) {
   std::vector<int> border;
   border.reserve((rect.width + rect.height - 2) * 2);
   const unsigned char *top = frame.data +
@@ -528,11 +529,18 @@ bool estimate_background(
     return false;
   }
   std::sort(border.begin(), border.end());
-  if (border.back() - border.front() > threshold) {
-    return false;
+  // Text crossing one edge must not discard an otherwise flat background.
+  // Require a dominant, tightly clustered border colour; do not simply widen
+  // the threshold and treat textured pictures as a uniform background.
+  size_t first = 0, last = 0, start = 0;
+  for (size_t end = 0; end < border.size(); ++end) {
+    while (border[end] - border[start] > threshold) ++start;
+    if (end + 1 - start > last - first) { first = start; last = end + 1; }
   }
-  const size_t first = border.size() / 4;
-  const size_t last = border.size() - border.size() / 4;
+  const size_t required = tolerate_border_outliers ? 7 : 10;
+  if ((last - first) * 10 < border.size() * required) return false;
+  const size_t trim = (last - first) / 4;
+  first += trim; last -= trim;
   long sum = 0;
   for (size_t i = first; i < last; ++i) {
     sum += border[i];
@@ -910,30 +918,42 @@ LogoGenerationResult generate_logo(
   std::vector<ScanPixel> initial_statistics(pixel_count);
   std::vector<int> uniform_frames;
   uniform_frames.reserve(frames.size());
-  for (size_t i = 0; i < frames.size(); ++i) {
+  bool robust_background = false;
+  auto collect_initial = [&]() {
+   initial_statistics.assign(pixel_count, ScanPixel());uniform_frames.clear();
+   for (size_t i = 0; i < frames.size(); ++i) {
     const InputVideoFrame frame = source.read_frame(frames[i]);
     int background = 0;
     if (!estimate_background(
             frame,
             result.rect,
             options.background_threshold,
-            &background)) {
+            &background, robust_background)) {
       continue;
     }
     add_frame_statistics(
         frame, result.rect, background, &initial_statistics);
     uniform_frames.push_back(frames[i]);
+   }
+  };
+  collect_initial();
+  int initial_active_pixels = 0;
+  std::vector<LogoPixelEstimate> initial_logo = estimate_logo(initial_statistics, &initial_active_pixels);
+  if (uniform_frames.size() < 8 || initial_active_pixels < 8) {
+    fprintf(stderr, "logo generator: strict background yielded %zu frames / %d active pixels; retrying with 70%% dominant border colour\n",uniform_frames.size(),initial_active_pixels);
+    robust_background = true;collect_initial();initial_logo = estimate_logo(initial_statistics, &initial_active_pixels);
   }
   result.uniform_frames =
       static_cast<int>(uniform_frames.size());
+  result.used_border_outliers = robust_background;
   if (uniform_frames.size() < 8) {
     throw std::runtime_error(
         "Insufficient frames with a uniform background around the logo");
   }
 
-  int initial_active_pixels = 0;
-  const std::vector<LogoPixelEstimate> initial_logo =
-      estimate_logo(initial_statistics, &initial_active_pixels);
+  fprintf(stderr, "logo generator: samples=%d uniform=%d initial-active=%d rect=%d,%d,%d,%d\n",
+      result.sampled_frames, result.uniform_frames, initial_active_pixels,
+      result.rect.x, result.rect.y, result.rect.width, result.rect.height);
   if (initial_active_pixels < 8) {
     throw std::runtime_error(
         "The initial logo estimate contains too few active pixels");
@@ -948,7 +968,7 @@ LogoGenerationResult generate_logo(
             frame,
             result.rect,
             options.background_threshold,
-            &background)) {
+            &background, robust_background)) {
       continue;
     }
     double fade = 0.0;

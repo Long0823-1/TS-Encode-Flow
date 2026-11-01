@@ -37,6 +37,18 @@ static partial class Tests {
    Check(StationLogos.Read(q.DataFolder,first).Area.ToString()==area.ToString(),"worker persists station selection before resuming jobs");
    first.State=State.NeedsLogo;q.Cancel(first.Id);Check(first.State==State.Cancelled,"logo setup wait can be cancelled");
    Check(!QueueManager.IsHistory(State.NeedsLogo),"history clearing preserves station setup wait");
+   string candidate=Path.Combine(Commercials.Folder(first,q.DataFolder),"candidate.lgd");Directory.CreateDirectory(Path.GetDirectoryName(candidate));
+   using(var writer=new BinaryWriter(File.Create(candidate))){var signature=new byte[28];System.Text.Encoding.ASCII.GetBytes("<logo data file ver0.1>").CopyTo(signature,0);writer.Write(signature);writer.Write(new byte[]{0,0,0,1});writer.Write(new byte[32]);foreach(short v in new short[]{4,4,16,16,0,0,0,0})writer.Write(v);for(int i=0;i<256;i++){writer.Write((short)250);writer.Write((short)4096);writer.Write(new byte[8]);}}
+   var bitmap=LogoCandidates.Read(candidate,m);Check(bitmap.Width==16&&bitmap.Alpha[0]==64&&bitmap.Luma[0]==235,"generated LGD pixels and opacity can be previewed");
+   first.State=State.NeedsLogoReview;first.LogoCandidate=candidate;q.Paused=true;
+   Check(!QueueManager.IsHistory(first.State)&&q.Enqueue(input)==null,"unapproved logo candidate stays pending and prevents duplicate input");
+   Reject(()=>q.ReviewLogo(new QueueManager.Request {JobId=first.Id,Fingerprint="stale"},true),"stale candidate confirmation is rejected");
+   q.ReviewLogo(new QueueManager.Request {JobId=first.Id,Fingerprint=first.Fingerprint},false);Check(first.State==State.NeedsLogo&&StationLogos.Find(q.DataFolder,first)==null,"rejecting contaminated candidate does not register station logo");
+   first.State=State.NeedsLogoReview;first.LogoCandidate=candidate;second.State=State.NeedsLogoReview;q.ReviewLogo(new QueueManager.Request {JobId=first.Id,Fingerprint=first.Fingerprint},true);
+   Check(first.State==State.Waiting&&!q.Paused&&File.ReadAllBytes(StationLogos.Find(q.DataFolder,first)).SequenceEqual(File.ReadAllBytes(candidate)),"approved candidate is saved before automatic resume");
+   Check(second.State==State.Waiting,"one approval resumes other pending jobs from the same station");
+   first.LogoCandidate=Path.Combine(root,"outside.lgd");Reject(()=>LogoCandidates.Promote(q.DataFolder,first),"candidate outside its job folder cannot be promoted");
+   bool malformed=false;File.WriteAllText(candidate,"broken");try{LogoCandidates.Read(candidate,m);}catch(InvalidDataException){malformed=true;}Check(malformed,"malformed LGD cannot be previewed or approved");
   }
  }
 }

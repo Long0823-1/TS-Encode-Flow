@@ -278,6 +278,7 @@ int main(int argc, const char* argv[])
   int nodisp = 0;
   int usage = 0;
   bool info_only = false;
+  bool generate_only = false;
   int seek = 0;
   int end = 0;
   int interlaced = 0;
@@ -409,6 +410,8 @@ int main(int argc, const char* argv[])
         nodisp = 0;
       } else if(!stricmp(argv[i], "-errforce")) {
         errforce = 1;
+      } else if (!stricmp(argv[i], "-logo-generate-only")) {
+        generate_only = true;
       } else if (!stricmp(argv[i], "-info-only")) {
         info_only = true;
       } else if (!stricmp(argv[i], "-h")) {
@@ -464,6 +467,7 @@ int main(int argc, const char* argv[])
         "  -channel name             use or generate the latest channel logo\n"
         "  -logo-dir directory       logo repository directory [logo]\n"
         "  -logo-area x,y,w,h        override automatic top-right search\n"
+        "  -logo-generate-only       generate without full-frame detection\n"
         "  -logo-samples number      generation sample count [600]\n"
         "  -logo-bg-threshold value  uniform background threshold [12]\n"
         "  -logo-edge-threshold value persistent edge threshold [40]\n"
@@ -550,12 +554,13 @@ int main(int argc, const char* argv[])
             "managed logo: channel=%s has no logo; generating v%04d\n",
             managed_logo.channel.c_str(),
             managed_logo_version);
-        generate_logo(
+        const LogoGenerationResult generated = generate_logo(
             *source,
             managed_logo,
             seek,
             end,
             managed_logo_path);
+        if (generated.used_border_outliers) fprintf(stderr, "CMLOGO_REVIEW_REQUIRED\n");
         logo_repository->set_latest(
             managed_logo_path, managed_logo_version);
       }
@@ -563,6 +568,11 @@ int main(int argc, const char* argv[])
         throw std::runtime_error(
             "Could not select the managed logo");
       }
+    }
+
+    if (generate_only) {
+      if (managed_logo.channel.empty()) throw std::runtime_error("-logo-generate-only requires -channel");
+      fprintf(stderr,"CMLOGO_GENERATED\n");MultLogoFree(&logodata);return 0;
     }
 
     //--------------- start logoframe from here ---------------

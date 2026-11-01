@@ -38,6 +38,7 @@ struct LogoGenerationResult {
   int uniform_frames;
   int logo_frames;
   int active_pixels;
+  bool used_border_outliers;
 };
 
 class LogoRepository {

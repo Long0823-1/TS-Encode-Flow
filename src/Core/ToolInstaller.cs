@@ -29,7 +29,7 @@ namespace TsEncodeFlow {
    new("vceenc","VCEEncC · AMD","rigaya/VCEEnc",@"^VCEEncC_.*_x64\.7z$","VCEEncC64.exe","Vceenc","本体・同梱ライブラリで条件が異なります。配布文書を参照。"),
    new("qsvenc","QSVEncC · Intel","rigaya/QSVEnc",@"^QSVEncC_.*_x64\.7z$","QSVEncC64.exe","Qsvenc","本体・同梱ライブラリで条件が異なります。配布文書を参照。"),
    new("cm-components","CM解析 · chapter_exe / join_logo_scp / AviSynth","rigaya/Amatsukaze",@"^Amatsukaze_[\d.]+\.7z$","chapter_exe.exe","ChapterExe","CM解析に必要な構成物のみを展開。Amatsukaze本体・GUI・エンコーダーは導入しません。GPL等、各構成物の条件を確認できます。"),
-   new("logoframe","CM解析 · logoframe（ロゴ検出）","Long0823-1/TS-Encode-Flow",@"^TS-Encode-Flow-CM-Logo-win-x64\.zip$","logoframe.exe","LogoFrame","GPL-3.0。tobitti0/logoframeをWindows x64向けにビルド。ソースコード・変更内容・ライセンスを同梱。","cm-logo-v2"),
+   new("logoframe","CM解析 · logoframe（ロゴ検出）","Long0823-1/TS-Encode-Flow",@"^TS-Encode-Flow-CM-Logo-win-x64\.zip$","logoframe.exe","LogoFrame","GPL-3.0。tobitti0/logoframeをWindows x64向けにビルド。ソースコード・変更内容・ライセンスを同梱。","cm-logo-v3"),
    new("edcb","EDCB · 番組情報DLL","xtne6f/EDCB",@"^EDCB-work-plus-s-bin\.zip$","EpgDataCap3.dll","EpgDll","EDCB原作・改変部・構成ライブラリの個別条件が適用されます。原作READMEと配布元の文書を確認してください。")
   };
   static readonly HttpClient Http=CreateClient();

@@ -34,7 +34,7 @@ sealed class MainPage:ContentPage {
   foreach(var item in new[]{("ダッシュボード","◉"),("変換キュー","☷"),("プリセット","◈"),("字幕・DRCS","文"),("CM・タイムリスト","▥"),("放送局ロゴ","▣"),("自動化","↻"),("設定","⚙")}) {
    string name=item.Item1;var button=Pixel.Button(item.Item2+"   "+name,()=>Navigate(name));button.HorizontalOptions=LayoutOptions.Fill;button.Padding=new Thickness(18,14);nav[name]=button;links.Children.Add(button);
   }
-  rail.Add(links,0,1);rail.Add(Pixel.Stack(Pixel.Text("元のTSはそのまま",13,Pixel.Muted,true),Pixel.Text("0.5.4 · .NET MAUI",12,Pixel.Muted),Pixel.Button("Ko-fiで開発を応援",()=>Pickers.Open("https://ko-fi.com/long0823"))),0,2);root.Add(rail,0,0);
+  rail.Add(links,0,1);rail.Add(Pixel.Stack(Pixel.Text("元のTSはそのまま",13,Pixel.Muted,true),Pixel.Text("0.5.5 · .NET MAUI",12,Pixel.Muted),Pixel.Button("Ko-fiで開発を応援",()=>Pickers.Open("https://ko-fi.com/long0823"))),0,2);root.Add(rail,0,0);
   var main=new Grid {RowDefinitions=new RowDefinitionCollection {new(88),new(GridLength.Auto),new(GridLength.Star),new(34)},RowSpacing=12};
   var heading=new Grid {ColumnDefinitions=new ColumnDefinitionCollection {new(GridLength.Star),new(GridLength.Auto)}};heading.Add(Pixel.Stack(title,subtitle),0,0);heading.Add(Pixel.Button("＋ TSを追加",AddFiles,true),1,0);main.Add(heading,0,0);updateBanner.Content=Pixel.Card(Pixel.Stack(updateText,Pixel.Button("更新内容・ダウンロードを開く",()=>Pickers.Open(Updates.ReleasesUrl),true)),Pixel.Tint,16);main.Add(updateBanner,0,1);main.Add(body,0,2);main.Add(toast,0,3);root.Add(main,1,0);Content=root;
   var launchArgs=Environment.GetCommandLineArgs();int pageIndex=Array.IndexOf(launchArgs,"--page");Navigate(pageIndex>=0&&pageIndex+1<launchArgs.Length&&nav.ContainsKey(launchArgs[pageIndex+1])?launchArgs[pageIndex+1]:section);
@@ -61,7 +61,7 @@ sealed class MainPage:ContentPage {
   selectedLabel.FontSize=19;selectedLabel.FontAttributes=FontAttributes.Bold;
   var selected=Pixel.Card(Pixel.Stack(Pixel.Text("現在のプリセット",12,Pixel.Muted,true),selectedLabel,Pixel.Button("プリセットを選ぶ",()=>Navigate("プリセット"))));
   var two=new Grid {ColumnDefinitions=new ColumnDefinitionCollection {new(GridLength.Star),new(GridLength.Star)},ColumnSpacing=16};two.Add(selected,0,0);two.Add(Pixel.Card(Pixel.Stack(Pixel.Text("変換のようす",12,Pixel.Muted,true),counts,Pixel.Button("キューを確認",()=>Navigate("変換キュー")))),1,0);
-  healthButton=Pixel.Button("ツールの設定を開く",()=>Navigate(client.Jobs.Any(j=>j.State==State.NeedsLogo)?"放送局ロゴ":client.Jobs.Any(j=>j.State==State.NeedsCmReview)?"CM・タイムリスト":client.Jobs.Any(j=>j.State==State.NeedsInput)?"字幕・DRCS":"設定"));
+  healthButton=Pixel.Button("ツールの設定を開く",()=>Navigate(client.Jobs.Any(j=>(j.State==State.NeedsLogo||j.State==State.NeedsLogoReview))?"放送局ロゴ":client.Jobs.Any(j=>j.State==State.NeedsCmReview)?"CM・タイムリスト":client.Jobs.Any(j=>j.State==State.NeedsInput)?"字幕・DRCS":"設定"));
   var healthCard=Pixel.Card(Pixel.Stack(Pixel.Text("確認すること",16,null,true),health,healthButton),Color.FromArgb("#EEF3F8"));
   return Pixel.Scroll(Pixel.Stack(heroCard,two,healthCard));
  }
@@ -76,12 +76,12 @@ sealed class MainPage:ContentPage {
   if(refreshing||client==null)return;refreshing=true;
   try {
    client.Refresh();selectedLabel.Text=client.Selected.Name+"\n"+PresetCatalog.EngineName(client.Selected.Engine)+" · "+client.Selected.Codec+" · "+PresetCatalog.ResolutionName(client.Selected);
-   int logoPending=client.Jobs.Count(j=>j.State==State.NeedsLogo);
+   int logoPending=client.Jobs.Count(j=>(j.State==State.NeedsLogo||j.State==State.NeedsLogoReview));
    int cmPending=client.Jobs.Count(j=>j.State==State.NeedsCmReview);
    int drcsPending=client.Jobs.Count(j=>j.State==State.NeedsInput);
-   counts.Text=client.Jobs.Count(j=>j.State==State.Running)+"本を変換中\n"+client.Jobs.Count(j=>j.State==State.Waiting)+"本が待機 · "+client.Jobs.Count(j=>j.State==State.Completed)+"本が完了"+(logoPending>0?"\nロゴ範囲指定待ち："+logoPending+"本":"")+(drcsPending>0?"\nDRCSの文字入力待ち："+drcsPending+"本":"")+(cmPending>0?"\nCM確認待ち："+cmPending+"本":"");
+   counts.Text=client.Jobs.Count(j=>j.State==State.Running)+"本を変換中\n"+client.Jobs.Count(j=>j.State==State.Waiting)+"本が待機 · "+client.Jobs.Count(j=>j.State==State.Completed)+"本が完了"+(logoPending>0?"\nロゴ設定・確認待ち："+logoPending+"本":"")+(drcsPending>0?"\nDRCSの文字入力待ち："+drcsPending+"本":"")+(cmPending>0?"\nCM確認待ち："+cmPending+"本":"");
    bool ready=File.Exists(client.Settings.Ffmpeg)&&File.Exists(client.Settings.Ffprobe)&&File.Exists(Pixel.EngineTool(client.Settings,client.Selected.Engine));
-   health.Text=logoPending>0?"未登録の放送局があります。「放送局ロゴ」でロゴを囲むと、自動で再開します。":cmPending>0?"CM候補の確認待ちです。「CM・タイムリスト」で区間と出力方法を確定してください。":drcsPending>0?"未対応のDRCSが見つかりました。「字幕・DRCS」で画像を確認し、代替文字を登録してください。":ready?"必要な変換ツールが見つかりました。TSを追加してはじめられます。":"FFmpeg・ffprobeと、選択したエンコーダーのパスを確認してください。";
+   health.Text=logoPending>0?"未登録局または生成画像の確認待ちがあります。「放送局ロゴ」を開いて設定・確認してください。":cmPending>0?"CM候補の確認待ちです。「CM・タイムリスト」で区間と出力方法を確定してください。":drcsPending>0?"未対応のDRCSが見つかりました。「字幕・DRCS」で画像を確認し、代替文字を登録してください。":ready?"必要な変換ツールが見つかりました。TSを追加してはじめられます。":"FFmpeg・ffprobeと、選択したエンコーダーのパスを確認してください。";
    if(healthButton!=null)healthButton.Text=logoPending>0?"放送局ロゴを設定":cmPending>0?"CM・タイムリストを確認":drcsPending>0?"字幕・DRCSを確認":"ツールの設定を開く";
    var ids=client.Jobs.Select(j=>j.Id).ToHashSet();foreach(var stale in rows.Where(r=>!ids.Contains(r.Id)).ToList())rows.Remove(stale);
    foreach(var j in client.Jobs.OrderByDescending(x=>x.Created)) {var row=rows.FirstOrDefault(x=>x.Id==j.Id);if(row==null)rows.Add(new JobRow(j));else row.Update(j);}

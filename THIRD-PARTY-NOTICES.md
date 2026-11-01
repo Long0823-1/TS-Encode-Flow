@@ -36,3 +36,6 @@ The CM dependency downloader reads the rigaya/Amatsukaze distribution archive bu
 ## Standalone CM logo helper
 
 The optional separate logoframe executable is GPL-3.0. Copyright notices and the full license are retained in third_party/CmLogo. Its complete corresponding source, upstream revision and Windows build instructions are included in both this repository and the downloadable helper ZIP. This GPL code is compiled into a separate executable, not linked into the MAUI/Core/Worker assemblies. See third_party/CmLogo/README.md for the small info-only addition and scripts/build-cm-logo.ps1 for a reproducible build.
+
+
+v0.5.5以降は改変版logoframe（GPL-3.0）をTools/CmLogoおよびWorker/Tools/CmLogoにも同梱します。各フォルダーのLICENSEとsource/CmLogoに完全な対応ソース・変更内容・ビルド手順を配置します。

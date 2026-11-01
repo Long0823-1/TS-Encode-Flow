@@ -3,7 +3,7 @@
 録画したTSをMP4・MKVに変換するWindows x64アプリです。.NET MAUIのネイティブUIを使い、Pixel / Material風の丸み・余白・明るい配色で構成しています。
 
 
-現在の版は **v0.5.3** です。開発中のWindows向けアプリです。
+現在の版は **v0.5.6** です。開発中のWindows向けアプリです。
 
 - [導入・操作手順](docs/SETUP.md)：初期設定、AMD変換、字幕、EPGTimer連携、再実行
 - [ソースからのビルド](docs/BUILD.md)

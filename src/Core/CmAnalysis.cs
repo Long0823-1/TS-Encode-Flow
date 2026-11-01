@@ -85,18 +85,18 @@ namespace TsEncodeFlow {
    if(aligned.Count!=times.Length)throw new InvalidDataException("CM解析のフレーム数を変換側へ一致させられません。");
    int width=sourceInfo.Width,height=sourceInfo.Height;
    string chapters=Path.Combine(work,"chapter.txt"),logoOutput=Path.Combine(work,"logo.txt"),trim=Path.Combine(work,"trim.avs");
-   if(!job.Preset.CmNoLogo) {
+   bool useLogo=await CmLogoFallback.UseLogo(job.Preset,string.IsNullOrWhiteSpace(settings.CmLogo),async()=> {
     job.Message="放送局ロゴを検出中（未登録局はロゴを自動生成）";changed();var logoArgs=new List<string>{avs,"-oa",logoOutput};
     if(!string.IsNullOrWhiteSpace(settings.CmLogo)){if(!File.Exists(settings.CmLogo))throw new FileNotFoundException("指定されたロゴLGDがありません。",settings.CmLogo);logoArgs.AddRange(new[]{"-logo",settings.CmLogo});}
     else {string logoCache=Path.Combine(data,"Logos");Directory.CreateDirectory(logoCache);logoArgs.AddRange(new[]{"-channel",job.Metadata.NetworkId+"-"+job.Metadata.TransportId+"-"+job.Metadata.ServiceId+"-"+width+"x"+height,"-logo-dir",logoCache});}
-    var logo=await Processes.Run(logoExe,logoArgs,token,log);if(logo.ExitCode!=0||!File.Exists(logoOutput))throw new InvalidDataException("ロゴ検出に失敗しました。対象局のLGDを指定するか、プリセットで「ロゴを使わない」を明示的に選んでください。");
-   }
+    var logo=await Processes.Run(logoExe,logoArgs,token,log);return logo.ExitCode==0&&File.Exists(logoOutput)&&new FileInfo(logoOutput).Length>0;
+   },token,log);
    job.Message="chapter_exeで無音・シーンチェンジを検出中";changed();var chapterArgs=new List<string>{"-v",avs,"-o",chapters};if(job.Metadata.Fps>=50)chapterArgs.AddRange(new[]{"-s","20"});
    var detected=await Processes.Run(chapter,chapterArgs,token,log);if(detected.ExitCode!=0||!File.Exists(chapters))throw new InvalidDataException("無音・シーンチェンジ検出に失敗しました。");
-   job.Message="join_logo_scpでCM区間を判定中";changed();var joinArgs=new List<string>{"-inscp",chapters,"-incmd",script,"-o",trim,"-oscp",Path.Combine(work,"timeline.txt")};if(!job.Preset.CmNoLogo)joinArgs.AddRange(new[]{"-inlogo",logoOutput});
+   job.Message="join_logo_scpでCM区間を判定中";changed();var joinArgs=new List<string>{"-inscp",chapters,"-incmd",script,"-o",trim,"-oscp",Path.Combine(work,"timeline.txt")};if(useLogo)joinArgs.AddRange(new[]{"-inlogo",logoOutput});
    var joined=await Processes.Run(jls,joinArgs,token,log);if(joined.ExitCode!=0||!File.Exists(trim))throw new InvalidDataException("join_logo_scpのCM判定に失敗しました。");
    if(Store.Fingerprint(job.Input)+"|"+job.Metadata.VideoIndex!=identityValue)throw new IOException("CM解析中に入力TSが更新されました。再解析してください。");
-   var plan=Commercials.Import(trim,job.Metadata,new Preset {CmTrimFps=job.Metadata.Fps.ToString("R",CultureInfo.InvariantCulture)},Store.Fingerprint(job.Input));plan.Source=job.Preset.CmNoLogo?"chapter_exe / join_logo_scp（ロゴなし）":"logoframe / chapter_exe / join_logo_scp";
+   var plan=Commercials.Import(trim,job.Metadata,new Preset {CmTrimFps=job.Metadata.Fps.ToString("R",CultureInfo.InvariantCulture)},Store.Fingerprint(job.Input));plan.Source=useLogo?"logoframe / chapter_exe / join_logo_scp":job.Preset.CmNoLogo?"chapter_exe / join_logo_scp（ロゴなし）":"chapter_exe / join_logo_scp（自動ロゴ取得失敗によりロゴなしへ切替）";
    if(protectTail){var safe=plan.Segments.Where(x=>x.IsCommercial&&x.Start<plan.Duration-1).Select(x=>new TimeRange {Start=x.Start,End=Math.Min(x.End,plan.Duration-1)});plan=Commercials.Build(safe,plan.Duration,plan.Fps,plan.Fingerprint,plan.Source+"（末尾時刻差あり・最後の1秒を保持）");log("末尾フレームに時刻差があるため最後の1秒をCM削除から保護しました。");}
    plan.HasVideoStart=true;plan.SourceVideoStart=job.Metadata.VideoStart;
    File.Delete(privateIndex);File.Delete(privateIndex+".identity");

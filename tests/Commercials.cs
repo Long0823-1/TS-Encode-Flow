@@ -9,6 +9,15 @@ using TsEncodeFlow;
 
 static partial class Tests {
  static async Task CmTests(string root) {
+  var fallbackPreset=new Preset {CmFallbackWithoutLogo=true};var fallbackLog=new List<string>();
+  Check(await CmLogoFallback.UseLogo(fallbackPreset,true,()=>Task.FromResult(true),CancellationToken.None,fallbackLog.Add),"logo success keeps logo analysis even with fallback enabled");
+  Check(!await CmLogoFallback.UseLogo(fallbackPreset,true,()=>Task.FromResult(false),CancellationToken.None,fallbackLog.Add)&&fallbackLog.Count==1&&!fallbackPreset.CmNoLogo,"automatic logo failure falls back only when enabled and preserves preset mode");
+  bool defaultStopped=false;try{await CmLogoFallback.UseLogo(new Preset(),true,()=>Task.FromResult(false),CancellationToken.None,_=>{});}catch(InvalidDataException){defaultStopped=true;}Check(defaultStopped,"logo failure stops by default when fallback is unchecked");
+  bool manualStopped=false;try{await CmLogoFallback.UseLogo(fallbackPreset,false,()=>Task.FromResult(false),CancellationToken.None,_=>{});}catch(InvalidDataException){manualStopped=true;}Check(manualStopped,"manual logo detection error is not silently ignored");
+  bool detected=false;Check(!await CmLogoFallback.UseLogo(new Preset {CmNoLogo=true,CmFallbackWithoutLogo=true},true,()=>{detected=true;return Task.FromResult(true);},CancellationToken.None,_=>{})&&!detected,"explicit no-logo preset skips logo detection");
+  using(var cancelled=new CancellationTokenSource()){bool stopped=false;try{await CmLogoFallback.UseLogo(fallbackPreset,true,()=>{cancelled.Cancel();return Task.FromResult(false);},cancelled.Token,_=>throw new Exception("cancel must not fall back"));}catch(OperationCanceledException){stopped=true;}Check(stopped,"cancellation is never converted into a no-logo fallback");}
+  bool ioStopped=false;try{await CmLogoFallback.UseLogo(fallbackPreset,true,()=>throw new IOException("read failure"),CancellationToken.None,_=>{});}catch(IOException){ioStopped=true;}Check(ioStopped,"I/O errors are not swallowed by logo fallback");
+  Check(Store.Clone(new BatchProfile {Preset=fallbackPreset}).Preset.CmFallbackWithoutLogo&&!Store.Json.Deserialize<Preset>("{}").CmFallbackWithoutLogo,"fallback checkbox survives BAT preset snapshot and is off in old settings");
   Check(ToolInstaller.IsCmDependency("exe_files/chapter_exe.exe")&&!ToolInstaller.IsCmDependency("exe_files/AmatsukazeCLI.exe")&&!ToolInstaller.IsCmDependency("exe_files/x264.exe"),"CM downloader excludes Amatsukaze application and encoders");
   string index=Path.Combine(root,"test.lwi");File.WriteAllText(index,"<LSMASHWorksIndexVersion=0.0.2.0>\n<LibavReaderIndexFile=13>\n"+string.Join("\n",Enumerable.Range(0,4).Select(i=>"Index=0,Type=0,Codec=2,TimeBase=1/30,POS=0,PTS="+i+",DTS="+i+",EDI=0\nKey=1,Width=320,Height=180,Format=yuv420p"))+"\n</LibavReaderIndex>\n");
   var indexed=CmIndex.Read(index,0,4,out var iw,out var ih);Check(CmIndex.Align(indexed,new[]{2d/30,3d/30})==2&&iw.All(w=>w==320)&&ih.All(h=>h==180),"direct TS index maps leading decoder differences without video re-encoding");

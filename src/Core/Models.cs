@@ -53,6 +53,7 @@ namespace TsEncodeFlow {
   public CmSource CmSource {get;set;}=CmSource.Sidecar;
   public bool CmReview {get;set;}=true;
   public bool CmNoLogo {get;set;}=false;
+  public bool CmFallbackWithoutLogo {get;set;}=false;
   public string CmTrimFps {get;set;}="";
   public bool IgnoreSubtitleErrors {get;set;}=false;
   public bool EmbedMetadata {get;set;}=true;

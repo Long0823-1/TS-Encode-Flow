@@ -48,7 +48,7 @@ namespace TsEncodeFlow {
     Store.Save(Path.Combine(inbox,Guid.NewGuid().ToString("N")+".json"),new Request {Path=full,Profile=profile});
    }
   }
-  public sealed class Request {public string Path;public string Action="enqueue",JobId;public BatchProfile Profile;public List<TimeRange> CmCuts;public CmMode CmMode;public string Fingerprint;public LogoArea LogoArea;}
+  public sealed class Request {public string Path;public string Action="enqueue",JobId;public BatchProfile Profile;public List<TimeRange> CmCuts;public CmMode CmMode;public string Fingerprint;public LogoArea LogoArea;public StationLogo LogoStation;public string LogoFileName,LogoSource,LogoSourceFingerprint,LogoOperationId;}
   bool Stable(string file) {
    if(!File.Exists(file))return false;string fingerprint=Store.Fingerprint(file);Tuple<string,DateTime> old;
    if(!observed.TryGetValue(file,out old)) {
@@ -59,7 +59,7 @@ namespace TsEncodeFlow {
   public void Tick() {
    foreach(string request in Directory.EnumerateFiles(Path.Combine(DataFolder,"Inbox"),"*.json").Take(100))try {
     var value=Store.Load<Request>(request,()=>new Request());
-    if(value.Action=="approve-logo")ReviewLogo(value,true);else if(value.Action=="reject-logo")ReviewLogo(value,false);else if(value.Action=="set-logo-area")SetLogoArea(value);else if(value.Action=="approve-cm")ApproveCm(value);else if(value.Action=="change-preset")ChangePreset(value.JobId,value.Profile?.Preset);else if(value.Action=="clear-history")ClearHistory();else if(value.Action=="shutdown"){StopRequested=true;Paused=true;}else if(value.Action=="retry-ignore-subtitles")Retry(value.JobId,true);else if(value.Action=="cancel")Cancel(value.JobId);else if(value.Action=="retry")Retry(value.JobId);else if(value.Action=="pause")Paused=true;else if(value.Action=="resume")Paused=false;else {var added=Enqueue(value.Path,false,value.Profile?.Preset,value.Profile?.OutputFolder,value.Profile?.FileName);if(added==null)Notice?.Invoke("同じTSはすでに待機中または変換中です。キューを確認してください。");else if(!StopRequested)Paused=false;}
+    if(value.Action=="import-logo"||value.Action=="delete-logo"||value.Action=="delete-logo-candidate")ManageLogo(value);else if(value.Action=="approve-logo")ReviewLogo(value,true);else if(value.Action=="reject-logo")ReviewLogo(value,false);else if(value.Action=="set-logo-area")SetLogoArea(value);else if(value.Action=="approve-cm")ApproveCm(value);else if(value.Action=="change-preset")ChangePreset(value.JobId,value.Profile?.Preset);else if(value.Action=="clear-history")ClearHistory();else if(value.Action=="shutdown"){StopRequested=true;Paused=true;}else if(value.Action=="retry-ignore-subtitles")Retry(value.JobId,true);else if(value.Action=="cancel")Cancel(value.JobId);else if(value.Action=="retry")Retry(value.JobId);else if(value.Action=="pause")Paused=true;else if(value.Action=="resume")Paused=false;else {var added=Enqueue(value.Path,false,value.Profile?.Preset,value.Profile?.OutputFolder,value.Profile?.FileName);if(added==null)Notice?.Invoke("同じTSはすでに待機中または変換中です。キューを確認してください。");else if(!StopRequested)Paused=false;}
     File.Delete(request);
    }catch(Exception e){Notice?.Invoke("追加失敗："+e.Message);try{File.Move(request,request+".error");}catch(IOException){}}
    if(Settings.WatchEnabled&&(DateTime.UtcNow-lastScan).TotalSeconds>=3) {
@@ -106,6 +106,34 @@ namespace TsEncodeFlow {
   }
   public void Cancel(string id) {
    lock(gate){CancellationTokenSource source;if(active.TryGetValue(id,out source))source.Cancel();else{var j=Jobs.FirstOrDefault(x=>x.Id==id);if(j!=null&&(j.State==State.Waiting||j.State==State.NeedsLogo||j.State==State.NeedsLogoReview)){j.State=State.Cancelled;j.Message="待機を中止しました。";}}Save();}
+  }
+  public void ManageLogo(Request request) {
+   if(!Guid.TryParseExact(request.LogoOperationId,"N",out _))throw new ArgumentException("ロゴ操作の識別情報が不正です。");
+   var result=new LogoOperationResult();
+   try {
+    lock(gate) {
+     var station=request.LogoStation??throw new ArgumentException("登録先の放送局を選んでください。");StationLogos.Geometry(station);
+     if(Jobs.Any(j=>(j.State==State.Running||active.ContainsKey(j.Id))&&(j.Metadata==null||StationLogos.Key(j)==station.Key)))throw new InvalidOperationException("この放送局のジョブが処理中です。完了または中止してから操作してください。");
+     string folder=Path.Combine(DataFolder,"Logos");Directory.CreateDirectory(folder);
+     using var lease=File.Open(Path.Combine(folder,station.Key+".lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None);
+     if(request.Action=="import-logo") {
+      string path=LogoLibrary.Import(DataFolder,station,request.LogoSource,request.LogoSourceFingerprint);result.FileName=Path.GetFileName(path);
+      var pending=Jobs.Where(j=>(j.State==State.NeedsLogo||j.State==State.NeedsLogoReview)&&j.Metadata!=null&&StationLogos.Key(j)==station.Key).ToList();foreach(var j in pending){j.State=State.Waiting;j.LogoCandidate="";j.Message="手動追加した局ロゴで自動開始待ち";}if(pending.Count>0)Paused=false;
+      result.Message="局ロゴを追加し、使用中に設定しました。";Save();
+     }else if(request.Action=="delete-logo"){LogoLibrary.Delete(DataFolder,station.Key,request.LogoFileName,request.Fingerprint);result.Message="ロゴを削除しました。元TSと保存した範囲は保持しています。";}
+     else if(request.Action=="delete-logo-candidate") {
+      var j=Jobs.FirstOrDefault(j=>j.Id==request.JobId);if(j==null||j.State!=State.NeedsLogoReview||j.Metadata==null||StationLogos.Key(j)!=station.Key)throw new ArgumentException("この放送局の確認待ち候補ではありません。");
+      if(request.Fingerprint!=j.Fingerprint||request.Fingerprint!=Store.Fingerprint(j.Input))throw new ArgumentException("入力TSが更新されています。中止後に再試行してください。");
+      string candidate=Path.GetFullPath(j.LogoCandidate??""),root=Path.GetFullPath(Commercials.Folder(j,DataFolder))+Path.DirectorySeparatorChar;
+      if(!candidate.StartsWith(root,StringComparison.OrdinalIgnoreCase)||!candidate.EndsWith(".lgd",StringComparison.OrdinalIgnoreCase))throw new ArgumentException("このジョブの候補フォルダー以外は削除できません。");
+      if(string.IsNullOrEmpty(request.LogoSourceFingerprint)||Store.Fingerprint(candidate)!=request.LogoSourceFingerprint)throw new IOException("候補が変更されています。一覧を更新してください。");
+      File.Delete(candidate);j.LogoCandidate="";j.State=State.NeedsLogo;j.Message="生成候補を削除しました。ロゴ範囲を選び直してください。";Save();result.Message=j.Message;
+     }
+     else throw new ArgumentException("未対応のロゴ操作です。");
+     result.Success=true;
+    }
+   }catch(Exception e){result.Message=e.Message;}
+   Store.Save(Path.Combine(DataFolder,"LogoOperations",request.LogoOperationId+".json"),result);Notice?.Invoke(result.Message);
   }
   public void ReviewLogo(Request request,bool approve) {
    lock(gate) {

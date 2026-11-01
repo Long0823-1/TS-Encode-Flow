@@ -7,6 +7,7 @@ using TsEncodeFlow;
 
 static partial class Tests {
  static async Task StationLogoTests(string root) {
+  LogoLibraryTests(root);
   string data=Path.Combine(root,"station-logos"),input=Path.Combine(root,"station-source.ts");File.WriteAllText(input,"fixture");
   var m=new Metadata {NetworkId=1,TransportId=2,ServiceId=3,Channel="テスト局",Width=1440,Height=1080};var j=new Job {Input=input,Metadata=m,Preset=new Preset()};
   Check(StationLogos.Key(j)=="1-2-3-1440x1080","station key preserves existing station/resolution logo cache");

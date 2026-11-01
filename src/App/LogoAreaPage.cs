@@ -63,20 +63,3 @@ sealed class LogoAreaPage:ContentPage {
   }
  }
 }
-
-sealed class StationLogosView:ContentView {
- public StationLogosView(EngineClient client)=>Content=Build(client);
- View Build(EngineClient client) {
-  var rows=Pixel.Stack(Pixel.Text("未登録の局だけ、一度ロゴを囲む",24,null,true),Pixel.Text("ロゴは放送局IDと元映像の解像度ごとに保存します。既存のLGDも再利用します。BATで追加した録画も、ここで指定してから自動処理を再開できます。",14,Pixel.Muted),Pixel.Button("一覧を更新",()=>Content=Build(client)),Pixel.Button("保存フォルダーを開く",()=>{var p=Path.Combine(client.Data,"Logos");Directory.CreateDirectory(p);Pickers.Open(p);}));
-  client.Refresh();var groups=client.Jobs.Where(j=>j.Metadata!=null).GroupBy(j=>StationLogos.Key(j)).OrderBy(g=>g.Key).ToList();
-  foreach(var group in groups) {
-   var review=group.FirstOrDefault(j=>j.State==State.NeedsLogoReview);var pending=group.FirstOrDefault(j=>StationLogos.CanConfigure(client.Data,j,client.Settings));var job=review??pending??group.First();string? logo=StationLogos.Find(client.Data,job);var area=StationLogos.Read(client.Data,job).Area;
-   var card=Pixel.Stack(Pixel.Text((string.IsNullOrWhiteSpace(job.Metadata.Channel)?"局名不明":job.Metadata.Channel)+" · "+job.Metadata.Width+" × "+job.Metadata.Height,18,null,true),Pixel.Text(group.Key,12,Pixel.Muted),Pixel.Text(review!=null?"生成画像の確認待ち（まだ局ロゴには登録していません）":logo!=null?"登録済み："+Path.GetFileName(logo):area!=null?"範囲登録済み："+area:"ロゴ未登録・範囲の指定が必要",14,Pixel.Muted));
-   if(review!=null)card.Children.Add(Pixel.Button("生成ロゴを確認",async()=>{await LogoReviewPage.Open(client,review);Content=Build(client);},true));
-   if(pending!=null)card.Children.Add(Pixel.Button("ロゴ範囲を指定",async()=>{await LogoAreaPage.Open(client,pending);Content=Build(client);},true));rows.Children.Add(Pixel.Card(card));
-  }
-  var saved=StationLogos.List(client.Data).Where(s=>!groups.Any(g=>g.Key==s.Key)).ToList();
-  foreach(var station in saved)rows.Children.Add(Pixel.Card(Pixel.Stack(Pixel.Text(station.Channel??station.Key,18,null,true),Pixel.Text(station.Key,12,Pixel.Muted),Pixel.Text(station.Area!=null?"保存範囲："+station.Area:"局別LGD保存済み",14,Pixel.Muted))));
-  if(groups.Count==0&&saved.Count==0)rows.Children.Add(Pixel.Text("CM解析するTSをキューに追加すると、放送局が表示されます。",14,Pixel.Muted));return Pixel.Scroll(rows);
- }
-}

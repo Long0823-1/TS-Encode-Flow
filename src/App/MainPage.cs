@@ -34,7 +34,7 @@ sealed class MainPage:ContentPage {
   foreach(var item in new[]{("ダッシュボード","◉"),("変換キュー","☷"),("プリセット","◈"),("字幕・DRCS","文"),("CM・タイムリスト","▥"),("放送局ロゴ","▣"),("自動化","↻"),("解析・比較","◫"),("設定","⚙")}) {
    string name=item.Item1;var button=Pixel.Button(item.Item2+"   "+name,()=>Navigate(name));button.HorizontalOptions=LayoutOptions.Fill;button.Padding=new Thickness(18,14);nav[name]=button;links.Children.Add(button);
   }
-  rail.Add(links,0,1);rail.Add(Pixel.Stack(Pixel.Text("元のTSはそのまま",13,Pixel.Muted,true),Pixel.Text("0.6.0 · .NET MAUI",12,Pixel.Muted),Pixel.Button("Ko-fiで開発を応援",()=>Pickers.Open("https://ko-fi.com/long0823"))),0,2);root.Add(rail,0,0);
+  rail.Add(links,0,1);rail.Add(Pixel.Stack(Pixel.Text("元のTSはそのまま",13,Pixel.Muted,true),Pixel.Text("0.6.1 · .NET MAUI",12,Pixel.Muted),Pixel.Button("Ko-fiで開発を応援",()=>Pickers.Open("https://ko-fi.com/long0823"))),0,2);root.Add(rail,0,0);
   var main=new Grid {RowDefinitions=new RowDefinitionCollection {new(88),new(GridLength.Auto),new(GridLength.Star),new(34)},RowSpacing=12};
   var heading=new Grid {ColumnDefinitions=new ColumnDefinitionCollection {new(GridLength.Star),new(GridLength.Auto)}};heading.Add(Pixel.Stack(title,subtitle),0,0);heading.Add(Pixel.Button("＋ TSを追加",AddFiles,true),1,0);main.Add(heading,0,0);updateBanner.Content=Pixel.Card(Pixel.Stack(updateText,Pixel.Button("更新内容・ダウンロードを開く",()=>Pickers.Open(Updates.ReleasesUrl),true)),Pixel.Tint,16);main.Add(updateBanner,0,1);main.Add(body,0,2);main.Add(toast,0,3);root.Add(main,1,0);Content=root;
   var launchArgs=Environment.GetCommandLineArgs();int pageIndex=Array.IndexOf(launchArgs,"--page");Navigate(pageIndex>=0&&pageIndex+1<launchArgs.Length&&nav.ContainsKey(launchArgs[pageIndex+1])?launchArgs[pageIndex+1]:section);
@@ -69,7 +69,8 @@ sealed class MainPage:ContentPage {
   var jobList=new CollectionView {ItemsSource=rows,SelectionMode=SelectionMode.None,ItemTemplate=new DataTemplate(()=>new JobCard(client)),EmptyView=Pixel.Card(Pixel.Stack(Pixel.Text("キューは空です",22),Pixel.Text("TSを追加するか、録画後BATから自動追加してください。",14,Pixel.Muted)))};
   var grid=new Grid {RowDefinitions=new RowDefinitionCollection {new(GridLength.Auto),new(GridLength.Star)},RowSpacing=20};
   var pause=Pixel.Button("新規開始を一時停止",()=>{client.Send("pause");Notice("実行中の変換は続け、新しい変換の開始を一時停止します。");});
-  grid.Add(Pixel.Row(Pixel.Button("処理を再開",()=>{client.Send("resume");Notice("変換を再開します。");},true),pause,Pixel.Button("履歴をクリア",()=>{client.Send("clear-history");Notice("完了・失敗・キャンセル・中断の履歴をクリアします。処理中・確認待ちは残ります。");}),Pixel.Button("出力先を開く",()=>{Directory.CreateDirectory(client.Settings.OutputFolder);Pickers.Open(client.Settings.OutputFolder);})),0,0);
+  var actions=new View[]{Pixel.Button("処理を再開",()=>{client.Send("resume");Notice("変換を再開します。");},true),pause,Pixel.Button("すべて中止",async()=>{int count=client.Jobs.Count(j=>QueueOrder.CanCancel(j.State));if(count==0){Notice("中止するジョブはありません。");return;}if(!await DisplayAlert("キューをまとめて中止",count+"本の処理中・開始待ち・確認待ちを中止し、新しい開始を一時停止します。元TS・完成動画・再開キャッシュは保持します。","すべて中止","戻る"))return;client.Send("cancel-all");Notice("まとめて中止を依頼しました。処理中のジョブは終了処理を待っています。");}),Pixel.Button("履歴をクリア",()=>{client.Send("clear-history");Notice("完了・失敗・キャンセル・中断の履歴をクリアします。処理中・確認待ちは残ります。");}),Pixel.Button("出力先を開く",()=>{Directory.CreateDirectory(client.Settings.OutputFolder);Pickers.Open(client.Settings.OutputFolder);})};
+  var actionBar=new FlexLayout {Wrap=Microsoft.Maui.Layouts.FlexWrap.Wrap};foreach(var action in actions){action.Margin=new Thickness(0,0,10,10);actionBar.Children.Add(action);}grid.Add(actionBar,0,0);
   grid.Add(jobList,0,1);return grid;
  }
  void Refresh() {
@@ -84,7 +85,7 @@ sealed class MainPage:ContentPage {
    health.Text=logoPending>0?"未登録局または生成画像の確認待ちがあります。「放送局ロゴ」を開いて設定・確認してください。":cmPending>0?"CM候補の確認待ちです。「CM・タイムリスト」で区間と出力方法を確定してください。":drcsPending>0?"未対応のDRCSが見つかりました。「字幕・DRCS」で画像を確認し、代替文字を登録してください。":ready?"必要な変換ツールが見つかりました。TSを追加してはじめられます。":"FFmpeg・ffprobeと、選択したエンコーダーのパスを確認してください。";
    if(healthButton!=null)healthButton.Text=logoPending>0?"放送局ロゴを設定":cmPending>0?"CM・タイムリストを確認":drcsPending>0?"字幕・DRCSを確認":"ツールの設定を開く";
    var ids=client.Jobs.Select(j=>j.Id).ToHashSet();foreach(var stale in rows.Where(r=>!ids.Contains(r.Id)).ToList())rows.Remove(stale);
-   foreach(var j in client.Jobs.OrderByDescending(x=>x.Created)) {var row=rows.FirstOrDefault(x=>x.Id==j.Id);if(row==null)rows.Add(new JobRow(j));else row.Update(j);}
+   var ordered=QueueOrder.Display(client.Jobs);for(int i=0;i<ordered.Count;i++){var j=ordered[i];var row=rows.FirstOrDefault(x=>x.Id==j.Id);if(row==null)rows.Insert(i,new JobRow(j));else{row.Update(j);int current=rows.IndexOf(row);if(current!=i)rows.Move(current,i);}}
    if(!client.WorkerAlive&&!client.Status.Paused&&(client.Settings.WatchEnabled||client.Jobs.Any(j=>j.State==State.Waiting))&&(DateTime.UtcNow-lastWake).TotalSeconds>8){lastWake=DateTime.UtcNow;client.Wake();}
    if(!string.IsNullOrEmpty(client.Status.Message))toast.Text=client.Status.Message;
   }catch(Exception ex){toast.Text=ex.Message;}finally{refreshing=false;}

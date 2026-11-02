@@ -23,16 +23,14 @@ namespace TsEncodeFlow {
   public static async Task<string> Cadence(Job j,Settings s,EncodePart part,CancellationToken token,Action<string> log) {
    if(j.Preset.Cadence!=CadenceMode.MixedVfr)return "preset";
    if(Math.Abs(j.Metadata.Fps-30000.0/1001)>0.015)return new[]{"tt","bb","tb","bt"}.Contains(j.Metadata.FieldOrder)?"video":"progressive";
-   var seq=new List<string>();int tff=0,bff=0,progressive=0;
-   var run=await Processes.Run(s.Ffmpeg,new[]{"-hide_banner","-nostdin","-ss",Commercials.N(SourceStart(j.Metadata,part.Start)),"-i",j.Input,"-map","0:"+j.Metadata.VideoIndex,"-t",Commercials.N(part.End-part.Start),"-vf","idet,metadata=mode=print","-an","-sn","-dn","-f","null","-"},token,line=>{const string key="lavfi.idet.repeated.current_frame=";int i=line.IndexOf(key,StringComparison.Ordinal);if(i>=0)seq.Add(line.Substring(i+key.Length).Trim());const string single="lavfi.idet.multiple.current_frame=";i=line.IndexOf(single,StringComparison.Ordinal);if(i>=0){string value=line.Substring(i+single.Length).Trim();if(value=="tff")tff++;else if(value=="bff")bff++;else if(value=="progressive")progressive++;}});
-   if(run.ExitCode!=0)throw new InvalidDataException("混在FPSの区間解析に失敗しました。");
-   var film=Telecine.Classify(seq);int frames=tff+bff+progressive;bool interlaced=frames>0&&(double)Math.Max(tff,bff)/frames>0.90;
-   string mode=film.Film?"film":!interlaced&&(j.Metadata.FieldOrder=="progressive"||frames>0&&(double)progressive/frames>0.85)?"progressive":"video";
-   log("混在FPS："+Commercials.N(part.Start)+"–"+Commercials.N(part.End)+"秒 / "+mode+" / 3:2="+film.Cadence.ToString("P1",CultureInfo.InvariantCulture));return mode;
+   var evidence=await Telecine.Probe(j,s,part.Start,Math.Min(12,part.End-part.Start),token,log,false);
+   int frames=evidence.DetectedTop+evidence.DetectedBottom+evidence.DetectedProgressive;bool interlaced=frames>0&&(double)Math.Max(evidence.DetectedTop,evidence.DetectedBottom)/frames>0.90;
+   string mode=evidence.Film?"film":!interlaced&&(j.Metadata.FieldOrder=="progressive"||frames>0&&(double)evidence.DetectedProgressive/frames>0.85)?"progressive":"video";
+   log("混在FPS："+Commercials.N(part.Start)+"–"+Commercials.N(part.End)+"秒 / "+mode+" / 3:2="+evidence.Cadence.ToString("P1",CultureInfo.InvariantCulture));return mode;
   }
   static List<string> Input(Job j,EncodePart part)=>new(){"-hide_banner","-nostdin","-y","-ss",Commercials.N(SourceStart(j.Metadata,part.Start)),"-i",j.Input,"-t",Commercials.N(part.End-part.Start),"-map","0:"+j.Metadata.VideoIndex,"-an","-sn","-dn"};
   public static async Task EncodeVideo(Job j,Settings s,EncodePart part,string output,CancellationToken token,Action<string> log) {
-   string filters=AdvancedFilters.Video(j.Preset,j.Metadata,part.Mode);var p=Store.Clone(j.Preset);p.Container=Container.mkv;p.ExtraArgs="";
+   string filters=AdvancedFilters.Timeline(j.Preset,j.Metadata,part.Mode);var p=Store.Clone(j.Preset);p.Container=Container.mkv;p.ExtraArgs="";
    if(p.Engine==Engine.CPU) {
     var c=Commands.Ffmpeg(s,p,j.Metadata,j.Input,output);var a=Input(j,part);a.AddRange(new[]{"-vf",filters,"-c:v",p.Codec==Codec.H264?"libx264":p.Codec==Codec.HEVC?"libx265":"libsvtav1"});
     if(p.Speed.Length>0)a.AddRange(new[]{"-preset",p.Speed});a.AddRange(p.RateMode==RateMode.Quality?new[]{"-crf",p.Quality.ToString(CultureInfo.InvariantCulture)}:new[]{"-b:v",p.Bitrate+"k"});
@@ -66,7 +64,8 @@ namespace TsEncodeFlow {
    var r=await Processes.Run(s.Ffprobe,new[]{"-v","error","-show_streams","-show_format","-of","json",file},token,null,60);if(r.ExitCode!=0)throw new InvalidDataException("区間を読み取れません。");
    var d=Store.Json.Deserialize<Dictionary<string,object>>(r.Output);var video=MetadataReader.Items(d,"streams").Select(MetadataReader.Obj).FirstOrDefault(x=>MetadataReader.Text(x,"codec_type")=="video");
    double seconds=MetadataReader.Number(MetadataReader.Text(MetadataReader.Obj(d.ContainsKey("format")?d["format"]:null),"duration"));
-   if(video==null||MetadataReader.Int(video,"width")<2||Math.Abs(seconds-duration)>Math.Max(0.3,2.0/24))throw new InvalidDataException("区間の長さまたは映像が不正です。");
+   if(video==null||MetadataReader.Int(video,"width")<2)throw new InvalidDataException("区間に有効な映像がありません："+Path.GetFileName(file));
+   if(Math.Abs(seconds-duration)>Math.Max(0.3,2.0/24))throw new InvalidDataException("映像区間の長さが一致しません：予定 "+Commercials.N(duration)+"秒 / 出力 "+Commercials.N(seconds)+"秒 / "+Path.GetFileName(file)+"。入力の時刻飛び・デコード警告とログを確認してください。");
    if(decode){var check=await Processes.Run(s.Ffmpeg,new[]{"-v","error","-xerror","-i",file,"-map","0:v:0","-f","null","-"},token);if(check.ExitCode!=0)throw new InvalidDataException("保存済み区間を最後までデコードできません。");}
   }
   public static async Task Run(Job j,Settings s,string data,string output,CancellationToken token,Action<string> log,Action changed) {

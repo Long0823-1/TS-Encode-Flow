@@ -43,9 +43,10 @@ namespace TsEncodeFlow {
   }
   public static void Submit(string dataFolder,IEnumerable<string> paths,BatchProfile profile=null) {
    string inbox=Path.Combine(dataFolder,"Inbox");Directory.CreateDirectory(inbox);
+   string batch=DateTime.UtcNow.Ticks.ToString("D19")+"-"+Guid.NewGuid().ToString("N");int sequence=0;
    foreach(string path in paths) {
     string full=Path.GetFullPath(path);if(!File.Exists(full)||!full.EndsWith(".ts",StringComparison.OrdinalIgnoreCase))throw new ArgumentException("TSが存在しません："+full);
-    Store.Save(Path.Combine(inbox,Guid.NewGuid().ToString("N")+".json"),new Request {Path=full,Profile=profile});
+    Store.Save(Path.Combine(inbox,batch+"-"+(sequence++).ToString("D6")+".json"),new Request {Path=full,Profile=profile});
    }
   }
   public sealed class Request {public string Path;public string Action="enqueue",JobId;public BatchProfile Profile;public List<TimeRange> CmCuts;public CmMode CmMode;public string Fingerprint;public LogoArea LogoArea;public StationLogo LogoStation;public string LogoFileName,LogoSource,LogoSourceFingerprint,LogoOperationId;}
@@ -57,9 +58,9 @@ namespace TsEncodeFlow {
    return (DateTime.UtcNow-old.Item2).TotalSeconds>=Settings.QuietSeconds&&(DateTime.UtcNow-File.GetLastWriteTimeUtc(file)).TotalSeconds>=Settings.QuietSeconds&&Converter.WritableRecording(file);
   }
   public void Tick() {
-   foreach(string request in Directory.EnumerateFiles(Path.Combine(DataFolder,"Inbox"),"*.json").Take(100))try {
+   foreach(string request in Directory.EnumerateFiles(Path.Combine(DataFolder,"Inbox"),"*.json").OrderBy(File.GetCreationTimeUtc).ThenBy(Path.GetFileName,StringComparer.Ordinal).Take(100))try {
     var value=Store.Load<Request>(request,()=>new Request());
-    if(value.Action=="clear-encode-cache")ClearEncodeCache(value.JobId);else if(value.Action=="import-logo"||value.Action=="delete-logo"||value.Action=="delete-logo-candidate")ManageLogo(value);else if(value.Action=="approve-logo")ReviewLogo(value,true);else if(value.Action=="reject-logo")ReviewLogo(value,false);else if(value.Action=="set-logo-area")SetLogoArea(value);else if(value.Action=="approve-cm")ApproveCm(value);else if(value.Action=="change-preset")ChangePreset(value.JobId,value.Profile?.Preset);else if(value.Action=="clear-history")ClearHistory();else if(value.Action=="shutdown"){StopRequested=true;Paused=true;}else if(value.Action=="retry-ignore-subtitles")Retry(value.JobId,true);else if(value.Action=="cancel")Cancel(value.JobId);else if(value.Action=="retry")Retry(value.JobId);else if(value.Action=="pause")Paused=true;else if(value.Action=="resume")Paused=false;else {var added=Enqueue(value.Path,false,value.Profile?.Preset,value.Profile?.OutputFolder,value.Profile?.FileName);if(added==null)Notice?.Invoke("同じTSはすでに待機中または変換中です。キューを確認してください。");else if(!StopRequested)Paused=false;}
+    if(value.Action=="clear-encode-cache")ClearEncodeCache(value.JobId);else if(value.Action=="import-logo"||value.Action=="delete-logo"||value.Action=="delete-logo-candidate")ManageLogo(value);else if(value.Action=="approve-logo")ReviewLogo(value,true);else if(value.Action=="reject-logo")ReviewLogo(value,false);else if(value.Action=="set-logo-area")SetLogoArea(value);else if(value.Action=="approve-cm")ApproveCm(value);else if(value.Action=="change-preset")ChangePreset(value.JobId,value.Profile?.Preset);else if(value.Action=="clear-history")ClearHistory();else if(value.Action=="shutdown"){StopRequested=true;Paused=true;}else if(value.Action=="retry-ignore-subtitles")Retry(value.JobId,true);else if(value.Action=="cancel-all")CancelAll();else if(value.Action=="cancel")Cancel(value.JobId);else if(value.Action=="retry")Retry(value.JobId);else if(value.Action=="pause")Paused=true;else if(value.Action=="resume")Paused=false;else {var added=Enqueue(value.Path,false,value.Profile?.Preset,value.Profile?.OutputFolder,value.Profile?.FileName);if(added==null)Notice?.Invoke("同じTSはすでに待機中または変換中です。キューを確認してください。");else if(!StopRequested)Paused=false;}
     File.Delete(request);
    }catch(Exception e){Notice?.Invoke("追加失敗："+e.Message);try{File.Move(request,request+".error");}catch(IOException){}}
    if(Settings.WatchEnabled&&(DateTime.UtcNow-lastScan).TotalSeconds>=3) {
@@ -105,7 +106,10 @@ namespace TsEncodeFlow {
    }
   }
   public void Cancel(string id) {
-   lock(gate){CancellationTokenSource source;if(active.TryGetValue(id,out source))source.Cancel();else{var j=Jobs.FirstOrDefault(x=>x.Id==id);if(j!=null&&(j.State==State.Waiting||j.State==State.NeedsLogo||j.State==State.NeedsLogoReview)){j.State=State.Cancelled;j.Message="待機を中止しました。";}}Save();}
+   lock(gate){CancellationTokenSource source;if(active.TryGetValue(id,out source))source.Cancel();else{var j=Jobs.FirstOrDefault(x=>x.Id==id);if(j!=null&&(QueueOrder.CanCancel(j.State))){j.State=State.Cancelled;j.Message="待機を中止しました。";}}Save();}
+  }
+  public int CancelAll() {
+   lock(gate){Paused=true;var targets=Jobs.Where(j=>QueueOrder.CanCancel(j.State)).ToList();foreach(var j in targets){if(active.TryGetValue(j.Id,out var source))source.Cancel();else{j.State=State.Cancelled;j.Message="まとめて中止しました（元TS・出力・再開キャッシュは保持）。";}}Save();Notice?.Invoke(targets.Count+"本を中止しました。新しい処理の開始を一時停止しています。");return targets.Count;}
   }
   public void ManageLogo(Request request) {
    if(!Guid.TryParseExact(request.LogoOperationId,"N",out _))throw new ArgumentException("ロゴ操作の識別情報が不正です。");

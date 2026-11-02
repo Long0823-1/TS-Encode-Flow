@@ -39,7 +39,7 @@ namespace TsEncodeFlow {
      // Matroska rounds timestamps to milliseconds. Align equal frame numbers
      // before framesync, otherwise it can compare a frame with its neighbour.
      string aligned="settb=AVTB,setpts=N/("+Commercials.N(metricFps)+"*TB)";
-     string graph="[0:"+m.VideoIndex+"]"+AdvancedFilters.Video(p,j.Metadata,part.Mode)+","+aligned+"[ref];[1:v:0]"+aligned+"[dist];[ref][dist]ssim=shortest=1:repeatlast=0";
+     string graph="[0:"+m.VideoIndex+"]"+AdvancedFilters.Timeline(p,j.Metadata,part.Mode)+","+aligned+"[ref];[1:v:0]"+aligned+"[dist];[ref][dist]ssim=shortest=1:repeatlast=0";
      var metric=await Processes.Run(s.Ffmpeg,new[]{"-hide_banner","-nostdin","-ss",Commercials.N(AdvancedEncoder.SourceStart(m,part.Start)),"-i",input,"-i",file,"-t",Commercials.N(sample),"-filter_complex",graph,"-an","-f","null","-"},token,null,120);
      var match=Regex.Match(metric.Error,@"All:([0-9.]+)");if(metric.ExitCode==0&&match.Success){weightedSsim+=MetadataReader.Number(match.Groups[1].Value);metrics++;}else log("SSIM計測を省略："+Converter.Tail(metric.Error));
     }

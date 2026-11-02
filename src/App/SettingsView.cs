@@ -3,8 +3,8 @@ using TsEncodeFlow;
 namespace EncodeFlow.App;
 sealed class SettingsView:ContentView {
  public SettingsView(EngineClient client,Action<string> notice,Func<Task<string>> checkUpdates) {
-  var s=client.Settings;Entry output=Pixel.Entry(s.OutputFolder),macro=Pixel.Entry(s.FileName);var preview=Pixel.Text("",14,Pixel.Blue,true);
-  void Preview(){try{preview.Text="出力例："+Names.Render(macro.Text??"",new Metadata {Title="お気に入りの番組 第12話",Channel="テスト放送",OriginalName="録画",Start=DateTime.Today.AddHours(21),Episode="12",Width=1920,Height=1080},client.Selected);}catch(Exception e){preview.Text=e.Message;}}
+  var s=client.Settings;Entry output=Pixel.Entry(s.OutputFolder),macro=Pixel.Entry(s.FileName);var preview=Pixel.Text("",14,Pixel.Blue,true);bool sampleEpisode=true;
+  void Preview(){try{preview.Text="出力例（話数"+(sampleEpisode?"あり":"なし")+"）："+Names.Render(macro.Text??"",new Metadata {Title="お気に入りの番組 第12話",Channel="テスト放送",OriginalName="録画",Start=DateTime.Today.AddHours(21),Episode=sampleEpisode?"12":"",Width=1920,Height=1080},client.Selected);}catch(Exception e){preview.Text=e.Message;}}
   macro.TextChanged+=(a,b)=>Preview();Preview();
   var toolInputs=new Dictionary<string,Entry>();
   var tools=Pixel.Stack(Pixel.Text("変換ツール",22,null,true),Pixel.Text("FFmpegとffprobeはすべての方式で必要です。\n日本語番組名のTS解析には、EDCB x64のEpgDataCap3.dllを指定できます。",13,Pixel.Muted));
@@ -18,6 +18,6 @@ sealed class SettingsView:ContentView {
   },true);
   var updateStatus=Pixel.Text("起動時と6時間ごとにGitHubの正式リリースを確認します。",13,Pixel.Muted);
   var updates=Pixel.Card(Pixel.Stack(Pixel.Text("アプリの更新",22,null,true),Pixel.Text("現在のバージョン："+(typeof(SettingsView).Assembly.GetName().Version?.ToString(3)??"不明"),14),updateStatus,Pixel.Button("更新を確認",async()=>{updateStatus.Text="更新情報を確認中です…";updateStatus.Text=await checkUpdates();}),Pixel.Button("GitHubのリリースを開く",()=>Pickers.Open(Updates.ReleasesUrl))));
-  Content=Pixel.Scroll(Pixel.Stack(Pixel.Card(Pixel.Stack(Pixel.Text("保存先とファイル名",22,null,true),Pixel.Field("動画の保存先",output),Pixel.Button("保存先を選択",async()=>{string? path=await Pickers.Folder();if(path!=null)output.Text=path;}),Pixel.Field("ファイル名マクロ",macro,"{Title} {Channel} {Start:yyyyMMdd_HHmm} {Episode} {OriginalName} {ServiceId} {EventId} {Codec} {Engine}"),preview)),Pixel.Card(new ToolSetupView(client,()=>{foreach(var item in toolInputs)item.Value.Text=(string)typeof(Settings).GetProperty(item.Key)!.GetValue(s)!;})),Pixel.Card(tools),save,updates,Pixel.Card(Pixel.Stack(Pixel.Text("設定・ログ",20,null,true),Pixel.Text(client.Data,12,Pixel.Muted),Pixel.Button("設定フォルダーを開く",()=>Pickers.Open(client.Data))))));
+  Content=Pixel.Scroll(Pixel.Stack(Pixel.Card(Pixel.Stack(Pixel.Text("保存先とファイル名",22,null,true),Pixel.Field("動画の保存先",output),Pixel.Button("保存先を選択",async()=>{string? path=await Pickers.Folder();if(path!=null)output.Text=path;}),Pixel.Field("ファイル名マクロ",macro,"{Title} {Channel} {Start:yyyyMMdd_HHmm} {Episode} {OriginalName} {ServiceId} {EventId} {Codec} {Engine}\n条件分岐：{if:Episode}{Title}_第{Episode}話{else}{Title}{endif}\n比較：{if:Width>=1920}HD{else}SD{endif} / {if:Channel==局名}…{endif}"),preview,Pixel.Button("話数あり／なしのプレビューを切り替え",()=>{sampleEpisode=!sampleEpisode;Preview();}))),Pixel.Card(new ToolSetupView(client,()=>{foreach(var item in toolInputs)item.Value.Text=(string)typeof(Settings).GetProperty(item.Key)!.GetValue(s)!;})),Pixel.Card(tools),save,updates,Pixel.Card(Pixel.Stack(Pixel.Text("設定・ログ",20,null,true),Pixel.Text(client.Data,12,Pixel.Muted),Pixel.Button("設定フォルダーを開く",()=>Pickers.Open(client.Data))))));
  }
 }

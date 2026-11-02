@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -9,6 +10,9 @@ namespace TsEncodeFlow {
   public double Start,Seconds,Cadence;
   public int Frames,Top,Bottom;
   public bool Film;
+  public int MatchFrames,CombedFrames,RepairedFrames,Cycles,DuplicateCycles,DetectedTop,DetectedBottom,DetectedProgressive;
+  public string Method="";
+  public bool Contradiction;
  }
  public sealed class TelecineResult {
   public bool Applied;
@@ -41,16 +45,34 @@ namespace TsEncodeFlow {
    var windows=Windows(j.Metadata,Commercials.Keep(j));
    if(windows.Count<3){result.Reason="判定に必要な独立区間が不足：元のフィルタを使用";return result;}
    foreach(var w in windows) {
-    token.ThrowIfCancellationRequested();var sequence=new List<string>();
-    var args=new[]{"-hide_banner","-nostdin","-ss",Commercials.N(w.Start),"-i",j.Input,"-map","0:"+j.Metadata.VideoIndex,"-t",Commercials.N(w.End-w.Start),"-vf","idet,metadata=mode=print:key=lavfi.idet.repeated.current_frame","-an","-sn","-dn","-f","null","-"};
-    var run=await Processes.Run(settings.Ffmpeg,args,token,line=>{const string key="lavfi.idet.repeated.current_frame=";int at=line.IndexOf(key,StringComparison.Ordinal);if(at>=0)sequence.Add(line.Substring(at+key.Length).Trim());},120);
-    if(run.ExitCode!=0)throw new System.IO.InvalidDataException("逆テレシネ解析に失敗しました："+Converter.Tail(run.Error));
-    var sample=Classify(sequence);sample.Start=w.Start;sample.Seconds=w.End-w.Start;result.Samples.Add(sample);
-    log("逆テレシネ解析："+Commercials.N(w.Start)+"秒 / "+sample.Frames+" frames / 3:2一致率 "+sample.Cadence.ToString("P1",System.Globalization.CultureInfo.InvariantCulture));
+    var sample=await Probe(j,settings,w.Start,w.End-w.Start,token,log);result.Samples.Add(sample);
    }
-   result.Applied=result.Samples.All(s=>s.Film);
-   result.Reason=result.Applied?"全サンプルで3:2を検出：fieldmatch＋残留縞解除＋decimateで23.976fps":"3:2の確証なし／混在の可能性：元のフィルタを使用";
+   int film=result.Samples.Count(s=>s.Film),conflicts=result.Samples.Count(s=>s.Contradiction);
+   result.Applied=film>=2&&conflicts==0;
+   result.Reason=result.Applied?"複数区間で24p復元を検証：fieldmatch＋残留縞解除＋decimateで23.976fps":film>0?"24p区間を"+film+"か所検出。ただし30p・60i等の混在があるため全編23.976fps固定を見送ります。「区間別24/30/60fps・VFR」で処理できます。":"24p復元の証拠が不足：設定済みのインターレース解除を使用";
    j.Metadata.InverseTelecine=result.Applied;log("逆テレシネ判定："+result.Reason);return result;
+  }
+  public static bool MatchFilm(TelecineSample s)=>s.MatchFrames>=120&&s.Cycles>=20&&s.RepairedFrames>=8&&(double)s.RepairedFrames/s.MatchFrames>=0.04&&(double)s.CombedFrames/s.MatchFrames<=0.03&&(double)s.DuplicateCycles/s.Cycles>=0.90;
+  public static void MatchLine(TelecineSample sample,string line) {
+   var m=Regex.Match(line,@"SC:[01]\s*\|\s*COMBS:\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+).*?combed=(YES|NO)");
+   if(m.Success){sample.MatchFrames++;if(m.Groups[6].Value=="YES")sample.CombedFrames++;int current=int.Parse(m.Groups[2].Value);int best=Enumerable.Range(1,5).Min(i=>int.Parse(m.Groups[i].Value));if(current>80&&best<20)sample.RepairedFrames++;}
+   if(line.Contains("1/5 frame drop:"))sample.Cycles++;
+   if(Regex.IsMatch(line,@"#\d+:.*\sdup(?:\s|$)"))sample.DuplicateCycles++;
+  }
+  public static async Task<TelecineSample> Probe(Job j,Settings settings,double start,double seconds,CancellationToken token,Action<string> log,bool verifyAll=true) {
+   token.ThrowIfCancellationRequested();var sequence=new List<string>();int tff=0,bff=0,progressive=0;
+   var args=new[]{"-hide_banner","-nostdin","-ss",Commercials.N(AdvancedEncoder.SourceStart(j.Metadata,start)),"-i",j.Input,"-map","0:"+j.Metadata.VideoIndex,"-t",Commercials.N(seconds),"-vf","idet,metadata=mode=print","-an","-sn","-dn","-f","null","-"};
+   var run=await Processes.Run(settings.Ffmpeg,args,token,line=>{const string key="lavfi.idet.repeated.current_frame=";int at=line.IndexOf(key,StringComparison.Ordinal);if(at>=0)sequence.Add(line.Substring(at+key.Length).Trim());const string field="lavfi.idet.multiple.current_frame=";at=line.IndexOf(field,StringComparison.Ordinal);if(at>=0){string value=line.Substring(at+field.Length).Trim();if(value=="tff")tff++;else if(value=="bff")bff++;else if(value=="progressive")progressive++;}},120);
+   if(run.ExitCode!=0)throw new System.IO.InvalidDataException("逆テレシネ解析に失敗しました："+Converter.Tail(run.Error));
+   var sample=Classify(sequence);sample.Start=start;sample.Seconds=seconds;sample.DetectedTop=tff;sample.DetectedBottom=bff;sample.DetectedProgressive=progressive;sample.Method=sample.Film?"3:2フィールド周期":"証拠不足";
+   if(!sample.Film&&seconds>=4&&(verifyAll||sample.Top>=4&&sample.Bottom>=4)) {
+    var match=await Processes.Run(settings.Ffmpeg,new[]{"-hide_banner","-nostdin","-loglevel","debug","-ss",Commercials.N(AdvancedEncoder.SourceStart(j.Metadata,start)),"-i",j.Input,"-map","0:"+j.Metadata.VideoIndex,"-t",Commercials.N(Math.Min(8,seconds)),"-vf","fieldmatch=order=auto:combmatch=full:combdbg=pcnub,decimate=cycle=5","-an","-sn","-dn","-f","null","-"},token,line=>MatchLine(sample,line),180);
+    if(match.ExitCode!=0)throw new System.IO.InvalidDataException("フィールドマッチ補助解析に失敗しました："+Converter.Tail(match.Error));
+    sample.Film=MatchFilm(sample);sample.Contradiction=sample.MatchFrames>=120&&((double)sample.CombedFrames/sample.MatchFrames>0.15||sample.Cycles>=20&&(double)sample.DuplicateCycles/sample.Cycles<0.65);
+    sample.Method=sample.Film?"フィールドマッチで縞修復＋5枚周期の重複を検証":sample.Contradiction?"24p固定と両立しない動きを検出":"静止・低動作等で判定保留";
+   }
+   log("逆テレシネ解析："+Commercials.N(start)+"秒 / "+sample.Method+" / 3:2一致率 "+sample.Cadence.ToString("P1",System.Globalization.CultureInfo.InvariantCulture)+" / 修復 "+sample.RepairedFrames+"・残留縞 "+sample.CombedFrames+"/"+sample.MatchFrames+"・重複周期 "+sample.DuplicateCycles+"/"+sample.Cycles);
+   return sample;
   }
  }
 }

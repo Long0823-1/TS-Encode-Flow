@@ -111,6 +111,7 @@ namespace TsEncodeFlow {
    if(QuietSeconds<3||QuietSeconds>86400)throw new ArgumentException("安定待ちは3～86400秒です。");
    if(string.IsNullOrWhiteSpace(OutputFolder)||string.IsNullOrWhiteSpace(FileName))throw new ArgumentException("保存先とファイル名マクロを指定してください。");
    if(WatchEnabled&&string.Equals(Path.GetFullPath(WatchFolder).TrimEnd('\\'),Path.GetFullPath(OutputFolder).TrimEnd('\\'),StringComparison.OrdinalIgnoreCase))throw new ArgumentException("録画フォルダーと保存先は分けてください。");
+   NameConditions.Validate(FileName);
    if(Presets==null||Presets.Count==0)throw new ArgumentException("プリセットが必要です。");
   }
  }
@@ -179,6 +180,8 @@ namespace TsEncodeFlow {
   }
   public static string Render(string template,Metadata m,Preset p) {
    var values=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase){{"Title",string.IsNullOrWhiteSpace(m.Title)?m.OriginalName:m.Title},{"Channel",string.IsNullOrWhiteSpace(m.Channel)?"不明局":m.Channel},{"OriginalName",m.OriginalName},{"ServiceId",m.ServiceId.ToString()},{"EventId",m.EventId.ToString()},{"NetworkId",m.NetworkId.ToString()},{"TransportId",m.TransportId.ToString()},{"Episode",m.Episode},{"Width",m.Width.ToString()},{"Height",m.Height.ToString()},{"Codec",p.Codec.ToString()},{"Engine",p.Engine.ToString()}};
+   var conditions=new Dictionary<string,string>(values,StringComparer.OrdinalIgnoreCase);conditions["Channel"]=m.Channel??"";conditions["Title"]=m.Title??"";conditions["Start"]=m.Start==default?"":m.Start.ToString("yyyyMMdd_HHmm",CultureInfo.InvariantCulture);
+   template=NameConditions.Expand(template,conditions);
    string result=Regex.Replace(template,@"\{([^{}:]+)(?::([^{}]+))?\}",match=> {
     if(match.Groups[1].Value.Equals("Start",StringComparison.OrdinalIgnoreCase))return Safe(m.Start.ToString(match.Groups[2].Success?match.Groups[2].Value:"yyyyMMdd_HHmm",CultureInfo.InvariantCulture));
     string value;if(!values.TryGetValue(match.Groups[1].Value,out value))throw new ArgumentException("未知のマクロ："+match.Value);return Safe(value);

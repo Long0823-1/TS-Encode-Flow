@@ -15,11 +15,11 @@ sealed class JobRow:INotifyPropertyChanged {
  public string Percent=>Job.Progress.ToString("0")+"%";
  public bool CanReviewLogo=>Job.State==State.NeedsLogoReview;
  public bool CanConfigureLogo=>Job.State==State.NeedsLogo;
- public bool CanCancel=>Job.State==State.Waiting||Job.State==State.Running||Job.State==State.NeedsLogo||Job.State==State.NeedsLogoReview;
+ public bool CanCancel=>QueueOrder.CanCancel(Job.State);
  public bool CanChangePreset=>Job.State==State.Cancelled;
  public bool CanRetry=>Job.State==State.Failed||Job.State==State.Cancelled||Job.State==State.Interrupted||Job.State==State.NeedsInput;
  public bool CanReviewCm=>Job.Commercials!=null;
- public bool CanIgnoreSubtitles=>CanRetry&&Job.Preset.KeepSubtitles;
+ public bool CanIgnoreSubtitles=>CanRetry&&Subtitles.CanRetryIgnoring(Job);
  public bool CanOpen=>!string.IsNullOrEmpty(Job.Output);
  public JobRow(Job j){Job=j;}
  public event PropertyChangedEventHandler? PropertyChanged;

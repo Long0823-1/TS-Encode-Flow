@@ -29,6 +29,7 @@ namespace TsEncodeFlow {
   }
  }
  public static class Subtitles {
+  public static bool CanRetryIgnoring(Job j)=>j.Preset?.KeepSubtitles==true&&!j.Preset.IgnoreSubtitleErrors&&(j.State==State.NeedsInput||j.State==State.Failed&&(j.Message.Contains("字幕",StringComparison.Ordinal)||j.Message.Contains("DRCS",StringComparison.OrdinalIgnoreCase)||!string.IsNullOrEmpty(j.Metadata?.SubtitleWarning)));
   public static string Srt(CaptionScan scan,Metadata metadata,Dictionary<string,DrcsReplacement> map) {
    var output=new StringBuilder();int count=0;var cues=scan.Cues.OrderBy(c=>c.Pts).ToList();
    for(int i=0;i<cues.Count;i++) {

@@ -5,6 +5,21 @@ using System.Linq;
 namespace TsEncodeFlow {
  public static class AdvancedFilters {
   public static string Matrix(VideoMatrix value)=>value switch {VideoMatrix.Bt709=>"bt709",VideoMatrix.Smpte170m=>"smpte170m",VideoMatrix.Bt2020nc=>"bt2020",_=>""};
+  public static double OutputFps(Preset p,Metadata m,string mode="preset") {
+   if(!string.IsNullOrWhiteSpace(p.Fps)&&p.Cadence!=CadenceMode.MixedVfr)return MetadataReader.Ratio(p.Fps);
+   if(mode=="film"||mode=="preset"&&m.InverseTelecine)return 24000.0/1001;
+   return m.Fps*(mode=="video"||mode=="preset"&&(p.Deinterlace==Deinterlace.YadifBob||p.Deinterlace==Deinterlace.BwdifBob)?2:1);
+  }
+  public static string Rate(double fps) {
+   foreach(var ratio in new[]{"24000/1001","30000/1001","60000/1001","120000/1001"})if(Math.Abs(MetadataReader.Ratio(ratio)-fps)<0.00001)return ratio;
+   int numerator=(int)Math.Round(fps*10000),denominator=10000,a=numerator,b=denominator;while(b!=0){int rest=a%b;a=b;b=rest;}return (numerator/Math.Max(1,a))+"/"+(denominator/Math.Max(1,a));
+  }
+  public static string Timeline(Preset p,Metadata m,string mode="preset") {
+   double fps=OutputFps(p,m,mode);if(!double.IsFinite(fps)||fps<=0)throw new ArgumentException("映像区間の出力FPSを取得できません。");
+   // Y4M has no per-frame timestamps. Fill holes on the source clock before
+   // sending it to the hardware encoder, rather than shortening the video.
+   return Video(p,m,mode)+",setpts=PTS-STARTPTS,fps=fps="+Rate(fps)+":start_time=0:round=near";
+  }
   public static string Video(Preset preset,Metadata metadata,string mode="preset") {
    var p=Store.Clone(preset);var m=Store.Clone(metadata);p.Fps="";m.InverseTelecine=mode=="film"||mode=="preset"&&metadata.InverseTelecine;
    if(mode=="video")p.Deinterlace=Deinterlace.BwdifBob;

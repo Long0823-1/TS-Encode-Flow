@@ -90,6 +90,7 @@ static partial class Tests {
    NameConditionTests();
    QueueV061(root);
    AudioSelectionV062();
+   CacheLocationTests(root);
    AdvancedTests(root);
    if(args.Contains("--advanced-live"))AdvancedLive(root,args).GetAwaiter().GetResult();
    TelecineTests();

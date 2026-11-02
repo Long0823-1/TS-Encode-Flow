@@ -80,6 +80,7 @@ namespace TsEncodeFlow {
   public override string ToString()=>Name;
  }
  public sealed class Settings {
+  public string EncodeCacheFolder {get;set;}="";
   [Category("1. 自動処理"),DisplayName("監視を有効にする")] public bool WatchEnabled {get;set;}=false;
   [Category("1. 自動処理"),DisplayName("録画フォルダー")] public string WatchFolder {get;set;}="";
   [Category("1. 自動処理"),DisplayName("サブフォルダーも監視")] public bool Recursive {get;set;}=false;
@@ -112,6 +113,7 @@ namespace TsEncodeFlow {
    if(string.IsNullOrWhiteSpace(OutputFolder)||string.IsNullOrWhiteSpace(FileName))throw new ArgumentException("保存先とファイル名マクロを指定してください。");
    if(WatchEnabled&&string.Equals(Path.GetFullPath(WatchFolder).TrimEnd('\\'),Path.GetFullPath(OutputFolder).TrimEnd('\\'),StringComparison.OrdinalIgnoreCase))throw new ArgumentException("録画フォルダーと保存先は分けてください。");
    NameConditions.Validate(FileName);
+   EncodeCache.ValidateFolder(EncodeCacheFolder);
    if(Presets==null||Presets.Count==0)throw new ArgumentException("プリセットが必要です。");
   }
  }
@@ -129,6 +131,8 @@ namespace TsEncodeFlow {
   public double Sar=1,Duration,Fps,VideoStart,AudioStart,FormatStart;
  }
  public sealed class Job {
+  public List<string> EncodeCacheFolders=new();
+  public string CacheCleanupWarning="";
   public string Id=Guid.NewGuid().ToString("N"),Input,Output="",Fingerprint,Message="",LogFile="",Command="";
   public State State=State.Waiting;
   public double Progress;

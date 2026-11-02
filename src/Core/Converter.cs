@@ -59,7 +59,7 @@ namespace TsEncodeFlow {
     else {
      string encoder=p.Engine==Engine.NVEncC?s.Nvenc:p.Engine==Engine.VCEEncC?s.Vceenc:s.Qsvenc;if(!File.Exists(encoder))throw new FileNotFoundException("選択したGPUエンコーダーがありません。設定タブでパスを指定してください。",encoder);
      bool prefiltered=!string.IsNullOrWhiteSpace(p.Fps)||j.Metadata.InverseTelecine;
-     selected=Path.Combine(Path.GetDirectoryName(final),".selected-"+j.Id+(prefiltered?".mkv":".ts"));
+     selected=Path.Combine(EncodeCache.WorkFolder(dataFolder,s,j),"selected"+(prefiltered?".mkv":".ts"));
      j.Message=prefiltered?"FPS・逆テレシネの可逆前処理中（空き容量が必要）":"対象サービスの映像・音声を分離中";changed();
      var demux=Commands.Ffmpeg(s,p,j.Metadata,j.Input,selected,prefiltered,!prefiltered,cutFilter:cutFilter);
      log(demux.ToString());var result=await Processes.Run(demux.Exe,demux.Args,token,log);
@@ -105,7 +105,10 @@ namespace TsEncodeFlow {
     File.Move(temp,final);temp=null;j.Output=final;j.Progress=100;
     Store.Save(final+".encode.json",new {input=j.Input,output=final,preset=p,metadata=j.Metadata,command=j.Command,finished=DateTime.Now,commercials=j.Commercials,telecine=j.Telecine,advanced=j.Advanced,signal=j.Signal,validation=MetadataReader.Obj(data.ContainsKey("format")?data["format"]:null)});
     Commercials.Export(j);
-    j.Message=!string.IsNullOrEmpty(j.Metadata.SubtitleWarning)?"完了（字幕の警告あり・元TSを保持）":j.Preset.KeepSubtitles&&subtitle==null?"完了（"+j.Metadata.SubtitleStatus+"・元TSを保持）":"完了（元TSを保持）";log(j.Message+"："+final);
+    j.CacheCleanupWarning="";
+    try{EncodeCache.ClearForJob(dataFolder,j);log("完了したジョブのエンコード用キャッシュを削除しました。");}
+    catch(Exception e)when(e is IOException||e is UnauthorizedAccessException||e is ArgumentException){j.CacheCleanupWarning=e.Message;log("完成動画は保存済みですが、キャッシュを削除できません："+e.Message);}
+    j.Message=!string.IsNullOrEmpty(j.Metadata.SubtitleWarning)?"完了（字幕の警告あり・元TSを保持）":j.Preset.KeepSubtitles&&subtitle==null?"完了（"+j.Metadata.SubtitleStatus+"・元TSを保持）":"完了（元TSを保持）";if(j.CacheCleanupWarning.Length>0)j.Message+=" キャッシュ削除の警告あり";log(j.Message+"："+final);
    }finally {
     reservation?.Dispose();foreach(string ownFile in new[]{reserve,temp,selected,muxed,cutAudio,audioFilter,audioMux})if(ownFile!=null&&File.Exists(ownFile))try{File.Delete(ownFile);}catch(IOException){}
    }

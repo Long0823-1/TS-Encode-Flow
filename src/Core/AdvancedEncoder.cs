@@ -70,7 +70,7 @@ namespace TsEncodeFlow {
   }
   public static async Task Run(Job j,Settings s,string data,string output,CancellationToken token,Action<string> log,Action changed) {
    AdvancedFilters.InputColor(j.Preset,j.Metadata);AdvancedFilters.Video(j.Preset,j.Metadata);
-   string key=Key(j,s),folder=Path.Combine(data,"EncodeCache",j.Id,key);Directory.CreateDirectory(folder);
+   string key=Key(j,s),folder=Path.Combine(EncodeCache.Register(data,s,j),j.Id,key);Directory.CreateDirectory(folder);
    using var lease=File.Open(Path.Combine(folder,".lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None);
    string manifest=Path.Combine(folder,"manifest.json");var old=Store.Load(manifest,()=>new AdvancedRun());var run=new AdvancedRun {Key=key,CacheFolder=folder,Parts=Parts(j)};j.Advanced=run;
    foreach(var part in run.Parts) {

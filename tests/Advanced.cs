@@ -26,6 +26,7 @@ static partial class Tests {
  }
  static async Task AdvancedLive(string root,string[] args) {
   var s=Integration.LoadSettings(Path.GetFullPath(Option(args,"--tool-data")));string input=Path.Combine(root,"advanced-input.ts");
+  s.EncodeCacheFolder=Path.Combine(root,"UserSelectedCache");
   var gen=await Processes.Run(s.Ffmpeg,new[]{"-hide_banner","-y","-f","lavfi","-i","testsrc2=size=320x240:rate=24000/1001","-f","lavfi","-i","sine=frequency=440:sample_rate=48000","-f","lavfi","-i","anullsrc=r=48000:cl=5.1","-t","36","-vf","telecine=pattern=23","-map","0:v","-map","1:a","-map","2:a","-c:v","mpeg2video","-q:v","2","-color_primaries","bt709","-color_trc","bt709","-colorspace","bt709","-c:a","aac","-metadata:s:a:0","language=jpn","-metadata:s:a:1","language=eng",input},CancellationToken.None,null,120);Check(gen.ExitCode==0,"advanced dual-audio film TS fixture");
   var m=await MetadataReader.Read(input,s,0,CancellationToken.None,_=>{});Check(m.AudioTracks.Count==2&&m.AudioTracks[1].Language=="eng","metadata enumerates selected-service audio and language");
   string cancelData=Path.Combine(root,"CancelAllLive");using(var queue=new QueueManager(cancelData)) {
@@ -40,11 +41,14 @@ static partial class Tests {
    bool cancelled=false;try{await Converter.Convert(j,s,cts.Token,log,()=>{if(j.Advanced?.Parts.Any(x=>x.Complete)==true)cts.Cancel();});}catch(OperationCanceledException){cancelled=true;}
    Check(cancelled&&j.Advanced.Parts[0].Complete,"cancellation leaves only verified complete chunks");
   }
-  await Converter.Convert(j,s,CancellationToken.None,log,()=>{});Check(j.Advanced.ReusedParts==1,"retry reuses verified chunk rather than restarting video");
-  string corrupt=j.Advanced.Parts[0].File;File.AppendAllText(corrupt,"corruption");int completed=j.Advanced.Parts.Count;j.FileName="repair-cache";await Converter.Convert(j,s,CancellationToken.None,log,()=>{});Check(j.Advanced.ReusedParts==completed-1,"changed cached bytes force only the damaged interval to re-encode");
+  Check(j.Advanced.CacheFolder.StartsWith(EncodeCache.Root(root,s.EncodeCacheFolder)+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase)&&File.Exists(j.Advanced.Parts[0].File),"custom cache destination retains verified video after cancellation");
+  string corrupt=j.Advanced.Parts[0].File;File.AppendAllText(corrupt,"corruption");
+  using(var cts=new CancellationTokenSource()) {bool cancelled=false;try{await Converter.Convert(j,s,cts.Token,log,()=>{if(j.Advanced?.Parts.Count(x=>x.Complete)>=2)cts.Cancel();});}catch(OperationCanceledException){cancelled=true;}Check(cancelled&&j.Advanced.ReusedParts==0&&j.Advanced.Parts.Take(2).All(x=>x.Complete),"corrupt cached interval is regenerated and cancellation preserves newly verified intervals");}
+  await Converter.Convert(j,s,CancellationToken.None,log,()=>{});Check(j.Advanced.ReusedParts==2,"retry reuses verified chunks rather than restarting video");
+  Check(!Directory.Exists(Path.GetDirectoryName(j.Advanced.CacheFolder))&&File.Exists(j.Output)&&j.CacheCleanupWarning.Length==0,"successful verified conversion deletes only its custom job cache and retains output");
   var probe=await Processes.Run(s.Ffprobe,new[]{"-v","error","-show_streams","-of","json",j.Output},CancellationToken.None);var d=Store.Json.Deserialize<Dictionary<string,object>>(probe.Output);var audios=MetadataReader.Items(d,"streams").Select(MetadataReader.Obj).Where(x=>MetadataReader.Text(x,"codec_type")=="audio").ToList();Check(audios.Count==2,"both audio streams survive final output");Check(MetadataReader.Text(MetadataReader.Obj(audios[1]["tags"]),"language")=="eng","secondary language survives mux");
   Check(MetadataReader.Int(audios[1],"channels")==6,"5.1 channel audio is retained without stereo downmix");
-  Check(!Directory.EnumerateFiles(j.Advanced.CacheFolder,"*.ffv1.mkv").Any(),"pipeline leaves no lossless intermediate file");
+  Check(!Directory.Exists(j.Advanced.CacheFolder),"pipeline leaves no cache or lossless intermediate after success");
   p.Cadence=CadenceMode.MixedVfr;p.ResumeChunks=false;j.FileName="vfr";await Converter.Convert(j,s,CancellationToken.None,log,()=>{});Check(j.Advanced.Parts.All(x=>x.Mode=="film"),"every film interval classified as 23.976");
   Check(j.Advanced.Parts.All(x=>!File.Exists(x.File)),"non-resumable encoded chunks cleaned after merge");
   var decode=await Processes.Run(s.Ffmpeg,new[]{"-v","error","-xerror","-i",j.Output,"-f","null","-"},CancellationToken.None,null,120);Check(decode.ExitCode==0,"VFR concat output fully decodes");
@@ -64,7 +68,7 @@ static partial class Tests {
   File.WriteAllText(input+".edl","6 12 0\n");p.CmMode=CmMode.Cut;p.CmReview=false;j.FileName="multi-audio-cut";await Converter.Convert(j,s,CancellationToken.None,log,()=>{});
   Check(Math.Abs(Commercials.Duration(j)-30)<0.1&&File.Exists(j.Output),"advanced CM cut keeps both audio tracks on the retimed timeline");
   p.CmMode=CmMode.Off;
-  if(p.Engine==Engine.VCEEncC){p.Cadence=CadenceMode.Preset;p.PipeGpu=false;j.FileName="gpu-intermediate";await Converter.Convert(j,s,CancellationToken.None,log,()=>{});Check(File.Exists(j.Output)&&!Directory.EnumerateFiles(j.Advanced.CacheFolder,"*.ffv1.mkv").Any(),"GPU detailed encoding without pipe uses and cleans its lossless intermediate");p.PipeGpu=true;
+  if(p.Engine==Engine.VCEEncC){p.Cadence=CadenceMode.Preset;p.PipeGpu=false;j.FileName="gpu-intermediate";await Converter.Convert(j,s,CancellationToken.None,log,()=>{});Check(File.Exists(j.Output)&&!Directory.Exists(j.Advanced.CacheFolder),"GPU detailed encoding without pipe cleans intermediate and job cache after success");p.PipeGpu=true;
    var sourceCommand=new Command {Exe=s.Ffmpeg,Args=new(){"-hide_banner","-re","-f","lavfi","-i","testsrc2=size=320x240:rate=30","-t","30","-pix_fmt","yuv420p","-f","yuv4mpegpipe","pipe:1"}};
    var pipeMetadata=Store.Clone(m);pipeMetadata.AudioIndex=-1;var consumer=Commands.Hardware(s,p,pipeMetadata,"-",Path.Combine(root,"cancel-pipe.mkv"),true);consumer.Args.Remove("--avsw");consumer.Args.Insert(0,"--y4m");bool stopped=false;
    using(var cancelPipe=new CancellationTokenSource(1200)){try{await PipeEncoding.Run(sourceCommand,consumer,cancelPipe.Token,log);}catch(OperationCanceledException){stopped=true;}}Check(stopped,"cancellation while pipe is streaming terminates producer and GPU consumer");

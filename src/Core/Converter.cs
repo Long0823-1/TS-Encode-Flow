@@ -21,12 +21,13 @@ namespace TsEncodeFlow {
    string dataFolder=Path.GetDirectoryName(Path.GetDirectoryName(j.LogFile));
    j.Message="CM区間を確認中";changed();await Commercials.Prepare(j,settings,dataFolder,token,log,changed);
    var keep=Commercials.Keep(j);double expectedDuration=Commercials.Duration(j);
+   j.Message="逆テレシネを判定中";changed();j.Telecine=await Telecine.Analyze(j,settings,token,log);changed();
    string subtitle=await Subtitles.Prepare(j,settings,dataFolder,token,log,changed);
    string cutFilter=null;
    if(keep!=null) {
     string folder=Commercials.Folder(j,dataFolder);Directory.CreateDirectory(folder);
     subtitle=Commercials.CutSubtitles(j,subtitle,folder,log);
-    if(j.Preset.Engine==Engine.CPU){cutFilter=Path.Combine(folder,"trim-filter.txt");File.WriteAllText(cutFilter,Commercials.Filter(keep,j.Metadata,Commands.Filters(j.Preset,j.Metadata)));}
+    if(j.Preset.Engine==Engine.CPU||j.Metadata.InverseTelecine){cutFilter=Path.Combine(folder,"trim-filter.txt");File.WriteAllText(cutFilter,Commercials.Filter(keep,j.Metadata,Commands.Filters(j.Preset,j.Metadata)));}
    }
    string root=Path.GetFullPath(j.OutputFolder),relative=Names.Render(j.FileName,j.Metadata,j.Preset);
    string desired=Path.GetFullPath(Path.Combine(root,relative));if(!desired.StartsWith(root.TrimEnd('\\')+"\\",StringComparison.OrdinalIgnoreCase))throw new ArgumentException("出力先が保存フォルダーの範囲外です。");
@@ -51,18 +52,18 @@ namespace TsEncodeFlow {
     if(p.Engine==Engine.CPU)command=Commands.Ffmpeg(s,p,j.Metadata,j.Input,temp,cutFilter:cutFilter);
     else {
      string encoder=p.Engine==Engine.NVEncC?s.Nvenc:p.Engine==Engine.VCEEncC?s.Vceenc:s.Qsvenc;if(!File.Exists(encoder))throw new FileNotFoundException("選択したGPUエンコーダーがありません。設定タブでパスを指定してください。",encoder);
-     bool prefiltered=!string.IsNullOrWhiteSpace(p.Fps);
+     bool prefiltered=!string.IsNullOrWhiteSpace(p.Fps)||j.Metadata.InverseTelecine;
      selected=Path.Combine(Path.GetDirectoryName(final),".selected-"+j.Id+(prefiltered?".mkv":".ts"));
-     j.Message=prefiltered?"FPS指定のためFFmpegで可逆前処理中":"対象サービスの映像・音声を分離中";changed();
-     var demux=Commands.Ffmpeg(s,p,j.Metadata,j.Input,selected,prefiltered,!prefiltered);
+     j.Message=prefiltered?"FPS・逆テレシネの可逆前処理中（空き容量が必要）":"対象サービスの映像・音声を分離中";changed();
+     var demux=Commands.Ffmpeg(s,p,j.Metadata,j.Input,selected,prefiltered,!prefiltered,cutFilter:cutFilter);
      log(demux.ToString());var result=await Processes.Run(demux.Exe,demux.Args,token,log);
      if(result.ExitCode!=0)throw new InvalidDataException("前処理失敗：終了コード"+result.ExitCode+"\n"+Tail(result.Error));
-     command=Commands.Hardware(s,p,j.Metadata,selected,temp,prefiltered,keep);
+     command=Commands.Hardware(s,p,j.Metadata,selected,temp,prefiltered,j.Metadata.InverseTelecine?null:keep);
     }
     j.Command=command.ToString();j.Message="変換中："+p.Engine;log(j.Command);changed();
     var encoded=await Processes.Run(command.Exe,command.Args,token,progress);
     if(encoded.ExitCode!=0)throw new InvalidDataException("変換失敗：終了コード"+encoded.ExitCode+"\n"+Tail(encoded.Error));
-    if(keep!=null&&p.Engine!=Engine.CPU&&j.Metadata.AudioIndex>=0) {
+    if(keep!=null&&p.Engine!=Engine.CPU&&!j.Metadata.InverseTelecine&&j.Metadata.AudioIndex>=0) {
      j.Message="CM区間に合わせて音声を再構成中";changed();
      cutAudio=Path.Combine(Path.GetDirectoryName(final),".cut-audio-"+j.Id+".m4a");audioFilter=cutAudio+".filter";audioMux=Path.Combine(Path.GetDirectoryName(final),".cut-av-"+j.Id+Path.GetExtension(final));
      File.WriteAllText(audioFilter,Commercials.AudioFilter(keep,j.Metadata));
@@ -90,10 +91,11 @@ namespace TsEncodeFlow {
     var expected=Commands.Resolution(p,j.Metadata);if(expected!=null&&(MetadataReader.Int(video,"width")!=expected[0]||MetadataReader.Int(video,"height")!=expected[1]))throw new InvalidDataException("出力の解像度が指定と一致しません。");
     double duration=MetadataReader.Number(MetadataReader.Text(MetadataReader.Obj(data.ContainsKey("format")?data["format"]:null),"duration"));
     if(expectedDuration>5&&(duration<expectedDuration*0.9-2||keep!=null&&Math.Abs(duration-expectedDuration)>Math.Max(2,1/j.Metadata.Fps)))throw new InvalidDataException("出力時間が入力より短すぎます。");
+    if(j.Metadata.InverseTelecine&&Math.Abs(MetadataReader.Ratio(MetadataReader.Text(video,"avg_frame_rate"))-24000.0/1001)>0.05)throw new InvalidDataException("逆テレシネ出力が23.976fpsではありません。");
     if(Store.Fingerprint(j.Input)!=fingerprint)throw new IOException("処理中に入力ファイルが更新されました。出力を確定しません。");
     if(p.CmMode!=CmMode.Off&&!MetadataReader.Items(data,"chapters").Any())throw new InvalidDataException("出力にCM・本編チャプターがありません。");
     File.Move(temp,final);temp=null;j.Output=final;j.Progress=100;
-    Store.Save(final+".encode.json",new {input=j.Input,output=final,preset=p,metadata=j.Metadata,command=j.Command,finished=DateTime.Now,commercials=j.Commercials,validation=MetadataReader.Obj(data.ContainsKey("format")?data["format"]:null)});
+    Store.Save(final+".encode.json",new {input=j.Input,output=final,preset=p,metadata=j.Metadata,command=j.Command,finished=DateTime.Now,commercials=j.Commercials,telecine=j.Telecine,validation=MetadataReader.Obj(data.ContainsKey("format")?data["format"]:null)});
     Commercials.Export(j);
     j.Message=!string.IsNullOrEmpty(j.Metadata.SubtitleWarning)?"完了（字幕の警告あり・元TSを保持）":j.Preset.KeepSubtitles&&subtitle==null?"完了（"+j.Metadata.SubtitleStatus+"・元TSを保持）":"完了（元TSを保持）";log(j.Message+"："+final);
    }finally {

@@ -10,6 +10,8 @@ namespace TsEncodeFlow {
  public static class Commands {
   static string N(int n)=>n.ToString(CultureInfo.InvariantCulture);
   public static void Validate(Preset p) {
+   if(p.AutoInverseTelecine&&!string.IsNullOrWhiteSpace(p.Fps))throw new ArgumentException("自動逆テレシネではFPS指定を空欄にしてください。");
+   if(p.AutoInverseTelecine&&Processes.Split(p.ExtraArgs??"").Any(a=>new[]{"-vf","-filter","-filter_complex","-filter_complex_script","-r","-fps_mode","-vsync","--vpp-afs","--vpp-rff","--vpp-decimate","--vpp-mpdecimate","--fps","--avsync","--vpp-yadif","--vpp-bwdif"}.Contains(a.Split('=')[0].Split(':')[0].ToLowerInvariant())))throw new ArgumentException("自動逆テレシネと追加引数のFPS・時間フィルタは併用できません。");
    if(!Enum.IsDefined(p.CmMode)||!Enum.IsDefined(p.CmSource))throw new ArgumentException("CM出力設定が不正です。");
    if(p.CmMode==CmMode.Cut&&(p.CopyAudio||!string.IsNullOrWhiteSpace(p.Fps)))throw new ArgumentException("CMカット時は音声コピーをOFF、FPS指定を空欄にしてください。");
    if(!string.IsNullOrWhiteSpace(p.CmTrimFps)&&(MetadataReader.Ratio(p.CmTrimFps)<=0||MetadataReader.Ratio(p.CmTrimFps)>240||!double.IsFinite(MetadataReader.Ratio(p.CmTrimFps))))throw new ArgumentException("TrimのFPSが不正です。");
@@ -41,7 +43,8 @@ namespace TsEncodeFlow {
    var f=new List<string>();int cropW=m.Width-p.CropLeft-p.CropRight,cropH=m.Height-p.CropTop-p.CropBottom;
    Resolution(p,m);
    if(p.CropLeft+p.CropTop+p.CropRight+p.CropBottom>0)f.Add("crop="+cropW+":"+cropH+":"+p.CropLeft+":"+p.CropTop);
-   if(p.Deinterlace!=Deinterlace.None)f.Add((p.Deinterlace==Deinterlace.Yadif||p.Deinterlace==Deinterlace.YadifBob?"yadif":"bwdif")+"=mode="+(p.Deinterlace==Deinterlace.YadifBob||p.Deinterlace==Deinterlace.BwdifBob?"send_field":"send_frame")+":parity=auto:deint=all");
+   if(m.InverseTelecine)f.Add("fieldmatch=order=auto:combmatch=full,bwdif=mode=send_frame:parity=auto:deint=interlaced,decimate=cycle=5,setfield=prog");
+   else if(p.Deinterlace!=Deinterlace.None)f.Add((p.Deinterlace==Deinterlace.Yadif||p.Deinterlace==Deinterlace.YadifBob?"yadif":"bwdif")+"=mode="+(p.Deinterlace==Deinterlace.YadifBob||p.Deinterlace==Deinterlace.BwdifBob?"send_field":"send_frame")+":parity=auto:deint=all");
    if(p.Denoise)f.Add("hqdn3d=2:1.5:3:2.25");
    var r=Resolution(p,m);if(r!=null){f.Add("scale="+r[0]+":"+r[1]+":flags=lanczos");f.Add("setsar=1");}
    if(p.Sharpen)f.Add("unsharp=5:5:0.5");if(!string.IsNullOrWhiteSpace(p.Fps))f.Add("fps="+p.Fps);return string.Join(",",f);
@@ -63,7 +66,7 @@ namespace TsEncodeFlow {
      a.AddRange(new[]{"-pix_fmt","yuv420p"});
     }
     if(p.Threads>0)a.AddRange(new[]{"-threads",N(p.Threads)});
-    if(m.AudioIndex>=0) {a.AddRange(new[]{"-c:a",p.CopyAudio||lossless?"copy":"aac"});if(!p.CopyAudio&&!lossless)a.AddRange(new[]{"-b:a",p.AudioBitrate+"k"});}
+    if(m.AudioIndex>=0) {a.AddRange(new[]{"-c:a",lossless&&cutFilter!=null?"flac":p.CopyAudio||lossless?"copy":"aac"});if(!p.CopyAudio&&!lossless)a.AddRange(new[]{"-b:a",p.AudioBitrate+"k"});}
    }
    a.AddRange(new[]{"-sn","-dn"});
    if(!remux) {

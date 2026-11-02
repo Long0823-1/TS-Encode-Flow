@@ -53,7 +53,7 @@ sealed class JobCard:ContentView {
   await Application.Current!.Windows[0].Page!.Navigation.PushModalAsync(new NavigationPage(page));
  }
  static async Task Details(Job j) {
-  string data="入力："+j.Input+"\n出力："+j.Output+"\n\n"+j.Message+"\n字幕の警告："+j.Metadata?.SubtitleWarning+"\n\n情報元："+j.Metadata?.Source+"\n番組開始："+j.Metadata?.Start+"\n局名："+j.Metadata?.Channel+"\n\n"+j.Command;
+  string data="入力："+j.Input+"\n出力："+j.Output+"\n\n"+j.Message+"\n字幕の警告："+j.Metadata?.SubtitleWarning+"\n逆テレシネ："+j.Telecine?.Reason+"\n\n情報元："+j.Metadata?.Source+"\n番組開始："+j.Metadata?.Start+"\n局名："+j.Metadata?.Channel+"\n\n"+j.Command;
   if(File.Exists(j.LogFile)){using(var f=new FileStream(j.LogFile,FileMode.Open,FileAccess.Read,FileShare.ReadWrite)){if(f.Length>30000)f.Seek(-30000,SeekOrigin.End);using var reader=new StreamReader(f);data+="\n\n最近のログ\n"+await reader.ReadToEndAsync();}}
   var page=new ContentPage {Title="変換の詳細",Padding=28};page.Content=Pixel.Scroll(Pixel.Stack(Pixel.Text(j.Metadata?.Title??Path.GetFileName(j.Input),24,null,true),Pixel.Button("閉じる",async()=>await page.Navigation.PopModalAsync()),Pixel.Text(data,13,Pixel.Muted)));
   await Application.Current!.Windows[0].Page!.Navigation.PushModalAsync(new NavigationPage(page));

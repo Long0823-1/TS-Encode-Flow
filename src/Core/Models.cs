@@ -41,6 +41,7 @@ namespace TsEncodeFlow {
   [Category("3. フィルタ"),DisplayName("インターレース解除")] public Deinterlace Deinterlace {get;set;}=Deinterlace.Yadif;
   [Category("3. フィルタ"),DisplayName("フレームレート"),Description("空欄=維持。例: 30000/1001、60000/1001、24。GPU変換では指定時にFFmpegの可逆一時ファイルで前処理します（空き容量が必要）。")]
   public string Fps {get;set;}="";
+  public bool AutoInverseTelecine {get;set;}=false;
   [Category("3. フィルタ"),DisplayName("クロップ左")] public int CropLeft {get;set;}=0;
   [Category("3. フィルタ"),DisplayName("クロップ上")] public int CropTop {get;set;}=0;
   [Category("3. フィルタ"),DisplayName("クロップ右")] public int CropRight {get;set;}=0;
@@ -109,6 +110,7 @@ namespace TsEncodeFlow {
   public string SubtitleStatus="";
   public string SubtitleWarning="";
   public long SubtitlePackets;
+  public bool InverseTelecine;
   public double Sar=1,Duration,Fps,VideoStart,AudioStart;
  }
  public sealed class Job {
@@ -120,6 +122,7 @@ namespace TsEncodeFlow {
   public string OutputFolder,FileName;
   public Metadata Metadata;
   public CmPlan Commercials;
+  public TelecineResult Telecine;
   public string LogoCandidate="";
   public List<DrcsGlyph> Glyphs=new List<DrcsGlyph>();
  }

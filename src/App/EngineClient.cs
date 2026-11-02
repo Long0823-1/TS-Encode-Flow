@@ -19,6 +19,7 @@ sealed class EngineClient {
   return production;
  }
  public void Save(){Settings.Validate();Settings.OutputFolder=Path.GetFullPath(Settings.OutputFolder);foreach(var p in Settings.Presets)Commands.Validate(p);Store.Save(Path.Combine(Data,"settings.json"),Settings);}
+ public void SaveCacheFolder(string? folder){string selected=folder?.Trim()??"";EncodeCache.ValidateFolder(selected);if(selected.Length>0)selected=Path.GetFullPath(selected);string previous=Settings.EncodeCacheFolder;try{Settings.EncodeCacheFolder=selected;Save();}catch{Settings.EncodeCacheFolder=previous;throw;}}
  public void Refresh(){Jobs=Integration.ReadJobs(Data);Status=Integration.ReadStatus(Data);}
  public bool WorkerAlive=>Status.Running&&(DateTime.UtcNow-Status.Updated).TotalSeconds<5;
  public void Wake()=>Integration.Wake(Worker,Data);

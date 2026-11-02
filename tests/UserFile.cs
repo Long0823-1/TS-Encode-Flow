@@ -11,6 +11,7 @@ static partial class Tests {
   var settings=new Settings {Ffmpeg=Store.FindTool("ffmpeg.exe"),Ffprobe=Store.FindTool("ffprobe.exe"),Vceenc=Option(args,"--vce"),CaptionTool=Option(args,"--caption"),OutputFolder=folder};
   if(args.Contains("--dll"))settings.EpgDll=Option(args,"--dll");
   var preset=new Preset {Name=mode,Engine=Engine.VCEEncC,Codec=mode.Contains("hevc")?Codec.HEVC:Codec.H264,Container=mode.Contains("hevc")?Container.mkv:Container.mp4,Quality=mode.Contains("hevc")?24:23,Speed="balanced",Width=mode.Contains("hevc")?0:1280,Height=mode.Contains("hevc")?0:720,Deinterlace=mode.Contains("hevc")?Deinterlace.Bwdif:Deinterlace.Yadif,CopyAudio=mode.Contains("hevc")};
+  if(args.Contains("--advanced")){preset.PipeGpu=true;preset.ResumeChunks=true;preset.AllAudio=true;preset.AutoInverseTelecine=true;}
   var j=new Job {Input=input,Preset=preset,OutputFolder=folder,FileName="{OriginalName}",State=State.Running,LogFile=Path.Combine(folder,"Data","Logs","encode.log")};Directory.CreateDirectory(Path.GetDirectoryName(j.LogFile));
   DateTime next=DateTime.MinValue;object gate=new object();Action<string> log=line=>{lock(gate){File.AppendAllText(j.LogFile,line+Environment.NewLine);if(DateTime.UtcNow>next){Console.WriteLine(DateTime.Now.ToString("HH:mm:ss")+" "+mode+" "+j.Message+" "+j.Progress.ToString("0.0")+"%");next=DateTime.UtcNow.AddSeconds(20);}}};
   try {
@@ -22,6 +23,7 @@ static partial class Tests {
    Check(streams.Any(s=>MetadataReader.Text(s,"codec_type")=="audio"),"user TS audio verified "+mode);
    double duration=MetadataReader.Number(MetadataReader.Text(MetadataReader.Obj(data["format"]),"duration"));Check(Math.Abs(duration-j.Metadata.Duration)<3,"whole recording duration preserved "+mode);
    var tags=MetadataReader.Obj(MetadataReader.Obj(data["format"])["tags"]);Check(tags.Any(x=>x.Key.Equals("title",StringComparison.OrdinalIgnoreCase)&&x.Value.ToString()==j.Metadata.Title),"user program title metadata verified "+mode);
+   if(args.Contains("--advanced")){var full=await Processes.Run(settings.Ffmpeg,new[]{"-v","error","-xerror","-i",j.Output,"-f","null","-"},CancellationToken.None,null,180);Check(full.ExitCode==0&&j.Advanced!=null,"real TS GPU pipe and resume pipeline full output decode");}
    Console.WriteLine("OUTPUT "+j.Output+" duration="+duration+" subtitles="+j.Metadata.SubtitleStatus);
   }catch(Exception e){j.State=State.Failed;j.Message=e.ToString();Store.Save(Path.Combine(folder,"progress.json"),j);throw;}
  }

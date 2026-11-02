@@ -10,6 +10,7 @@ namespace TsEncodeFlow {
  public static class Commands {
   static string N(int n)=>n.ToString(CultureInfo.InvariantCulture);
   public static void Validate(Preset p) {
+   AdvancedOptions.Validate(p);
    if(p.AutoInverseTelecine&&!string.IsNullOrWhiteSpace(p.Fps))throw new ArgumentException("自動逆テレシネではFPS指定を空欄にしてください。");
    if(p.AutoInverseTelecine&&Processes.Split(p.ExtraArgs??"").Any(a=>new[]{"-vf","-filter","-filter_complex","-filter_complex_script","-r","-fps_mode","-vsync","--vpp-afs","--vpp-rff","--vpp-decimate","--vpp-mpdecimate","--fps","--avsync","--vpp-yadif","--vpp-bwdif"}.Contains(a.Split('=')[0].Split(':')[0].ToLowerInvariant())))throw new ArgumentException("自動逆テレシネと追加引数のFPS・時間フィルタは併用できません。");
    if(!Enum.IsDefined(p.CmMode)||!Enum.IsDefined(p.CmSource))throw new ArgumentException("CM出力設定が不正です。");

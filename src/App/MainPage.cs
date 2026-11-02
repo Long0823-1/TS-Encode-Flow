@@ -31,10 +31,10 @@ sealed class MainPage:ContentPage {
   var mark=Pixel.Card(new Label {Text="TS",FontSize=19,FontAttributes=FontAttributes.Bold,TextColor=Pixel.Blue,HorizontalTextAlignment=TextAlignment.Center,VerticalTextAlignment=TextAlignment.Center},Pixel.Tint,8);mark.WidthRequest=48;mark.HeightRequest=48;mark.HorizontalOptions=LayoutOptions.Start;mark.VerticalOptions=LayoutOptions.Center;
   var brand=new Grid {ColumnDefinitions=new ColumnDefinitionCollection {new(48),new(GridLength.Star)},ColumnSpacing=12,VerticalOptions=LayoutOptions.Start};brand.Add(mark,0,0);brand.Add(Pixel.Stack(Pixel.Text("録画TSを動画に",17,null,true),Pixel.Text("TS Encode Flow",12,Pixel.Muted)),1,0);rail.Add(brand,0,0);
   var links=new VerticalStackLayout {Spacing=10,Padding=new Thickness(0,26,0,0)};
-  foreach(var item in new[]{("ダッシュボード","◉"),("変換キュー","☷"),("プリセット","◈"),("字幕・DRCS","文"),("CM・タイムリスト","▥"),("放送局ロゴ","▣"),("自動化","↻"),("設定","⚙")}) {
+  foreach(var item in new[]{("ダッシュボード","◉"),("変換キュー","☷"),("プリセット","◈"),("字幕・DRCS","文"),("CM・タイムリスト","▥"),("放送局ロゴ","▣"),("自動化","↻"),("解析・比較","◫"),("設定","⚙")}) {
    string name=item.Item1;var button=Pixel.Button(item.Item2+"   "+name,()=>Navigate(name));button.HorizontalOptions=LayoutOptions.Fill;button.Padding=new Thickness(18,14);nav[name]=button;links.Children.Add(button);
   }
-  rail.Add(links,0,1);rail.Add(Pixel.Stack(Pixel.Text("元のTSはそのまま",13,Pixel.Muted,true),Pixel.Text("0.5.7 · .NET MAUI",12,Pixel.Muted),Pixel.Button("Ko-fiで開発を応援",()=>Pickers.Open("https://ko-fi.com/long0823"))),0,2);root.Add(rail,0,0);
+  rail.Add(links,0,1);rail.Add(Pixel.Stack(Pixel.Text("元のTSはそのまま",13,Pixel.Muted,true),Pixel.Text("0.6.0 · .NET MAUI",12,Pixel.Muted),Pixel.Button("Ko-fiで開発を応援",()=>Pickers.Open("https://ko-fi.com/long0823"))),0,2);root.Add(rail,0,0);
   var main=new Grid {RowDefinitions=new RowDefinitionCollection {new(88),new(GridLength.Auto),new(GridLength.Star),new(34)},RowSpacing=12};
   var heading=new Grid {ColumnDefinitions=new ColumnDefinitionCollection {new(GridLength.Star),new(GridLength.Auto)}};heading.Add(Pixel.Stack(title,subtitle),0,0);heading.Add(Pixel.Button("＋ TSを追加",AddFiles,true),1,0);main.Add(heading,0,0);updateBanner.Content=Pixel.Card(Pixel.Stack(updateText,Pixel.Button("更新内容・ダウンロードを開く",()=>Pickers.Open(Updates.ReleasesUrl),true)),Pixel.Tint,16);main.Add(updateBanner,0,1);main.Add(body,0,2);main.Add(toast,0,3);root.Add(main,1,0);Content=root;
   var launchArgs=Environment.GetCommandLineArgs();int pageIndex=Array.IndexOf(launchArgs,"--page");Navigate(pageIndex>=0&&pageIndex+1<launchArgs.Length&&nav.ContainsKey(launchArgs[pageIndex+1])?launchArgs[pageIndex+1]:section);
@@ -48,9 +48,9 @@ sealed class MainPage:ContentPage {
  public void OpenSection(string name)=>Navigate(nav.ContainsKey(name)?name:"ダッシュボード");
  void Navigate(string name) {
   if(section==name&&body.Content!=null){Refresh();return;}
-  section=name;title.Text=name;subtitle.Text=name switch {"ダッシュボード"=>"録画から変換まで、ひとつの流れに。","変換キュー"=>"進捗と結果を、ここでまとめて確認。","プリセット"=>"見るものに合わせて、ちょうどいい画質を。","字幕・DRCS"=>"字形と写真を見比べて、読めない文字を補正。","CM・タイムリスト"=>"本編とCMの区間を確認し、出力方法を選びます。","放送局ロゴ"=>"局・解像度ごとのロゴを再利用。未登録局だけ範囲を指定。","自動化"=>"録画が終わったら、あとはおまかせ。",_=>"必要なツールと、保存先を整えます。"};
+  section=name;title.Text=name;subtitle.Text=name switch {"ダッシュボード"=>"録画から変換まで、ひとつの流れに。","変換キュー"=>"進捗と結果を、ここでまとめて確認。","プリセット"=>"見るものに合わせて、ちょうどいい画質を。","字幕・DRCS"=>"字形と写真を見比べて、読めない文字を補正。","CM・タイムリスト"=>"本編とCMの区間を確認し、出力方法を選びます。","放送局ロゴ"=>"局・解像度ごとのロゴを再利用。未登録局だけ範囲を指定。","自動化"=>"録画が終わったら、あとはおまかせ。","解析・比較"=>"映像・音声・品質を、変換前に確かめます。",_=>"必要なツールと、保存先を整えます。"};
   foreach(var item in nav){bool chosen=item.Key==name;item.Value.BackgroundColor=chosen?Pixel.Tint:Colors.Transparent;item.Value.TextColor=chosen?Pixel.Blue:Pixel.Muted;}
-  body.Content=name switch {"ダッシュボード"=>Dashboard(),"変換キュー"=>Queue(),"プリセット"=>new PresetsView(client,Notice),"CM・タイムリスト"=>new CommercialView(client,Notice),"放送局ロゴ"=>new StationLogosView(client),"字幕・DRCS"=>new DrcsView(client,Notice),"自動化"=>new AutomationView(client,Notice),_=>new SettingsView(client,Notice,CheckUpdates)};Refresh();
+  body.Content=name switch {"ダッシュボード"=>Dashboard(),"変換キュー"=>Queue(),"プリセット"=>new PresetsView(client,Notice),"CM・タイムリスト"=>new CommercialView(client,Notice),"放送局ロゴ"=>new StationLogosView(client),"字幕・DRCS"=>new DrcsView(client,Notice),"自動化"=>new AutomationView(client,Notice),"解析・比較"=>new EncodingLabView(client),_=>new SettingsView(client,Notice,CheckUpdates)};Refresh();
  }
  View Dashboard() {
   // A MAUI view can belong to only one native parent. Each dashboard gets new controls.

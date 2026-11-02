@@ -42,6 +42,18 @@ namespace TsEncodeFlow {
   [Category("3. フィルタ"),DisplayName("フレームレート"),Description("空欄=維持。例: 30000/1001、60000/1001、24。GPU変換では指定時にFFmpegの可逆一時ファイルで前処理します（空き容量が必要）。")]
   public string Fps {get;set;}="";
   public bool AutoInverseTelecine {get;set;}=false;
+  public CadenceMode Cadence {get;set;}=CadenceMode.Preset;
+  public bool PipeGpu {get;set;}=false;
+  public bool ResumeChunks {get;set;}=false;
+  public int ChunkSeconds {get;set;}=120;
+  public bool AllAudio {get;set;}=false;
+  public string AudioStreams {get;set;}="";
+  public int BitDepth {get;set;}=8;
+  public VideoMatrix ColorMatrix {get;set;}=VideoMatrix.Preserve;
+  public VideoMatrix InputColorMatrix {get;set;}=VideoMatrix.Preserve;
+  public VideoRange ColorRange {get;set;}=VideoRange.Preserve;
+  public DitherMode Dither {get;set;}=DitherMode.ErrorDiffusion;
+  public bool DiagnoseSignal {get;set;}=false;
   [Category("3. フィルタ"),DisplayName("クロップ左")] public int CropLeft {get;set;}=0;
   [Category("3. フィルタ"),DisplayName("クロップ上")] public int CropTop {get;set;}=0;
   [Category("3. フィルタ"),DisplayName("クロップ右")] public int CropRight {get;set;}=0;
@@ -111,7 +123,9 @@ namespace TsEncodeFlow {
   public string SubtitleWarning="";
   public long SubtitlePackets;
   public bool InverseTelecine;
-  public double Sar=1,Duration,Fps,VideoStart,AudioStart;
+  public string ColorSpace="",ColorRange="",ColorPrimaries="",ColorTransfer="",PixelFormat="",FieldOrder="";
+  public List<AudioTrack> AudioTracks=new();
+  public double Sar=1,Duration,Fps,VideoStart,AudioStart,FormatStart;
  }
  public sealed class Job {
   public string Id=Guid.NewGuid().ToString("N"),Input,Output="",Fingerprint,Message="",LogFile="",Command="";
@@ -123,6 +137,8 @@ namespace TsEncodeFlow {
   public Metadata Metadata;
   public CmPlan Commercials;
   public TelecineResult Telecine;
+  public AdvancedRun Advanced;
+  public SignalReport Signal;
   public string LogoCandidate="";
   public List<DrcsGlyph> Glyphs=new List<DrcsGlyph>();
  }

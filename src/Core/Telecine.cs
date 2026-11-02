@@ -35,6 +35,7 @@ namespace TsEncodeFlow {
   }
   public static async Task<TelecineResult> Analyze(Job j,Settings settings,CancellationToken token,Action<string> log) {
    var result=new TelecineResult();j.Metadata.InverseTelecine=false;
+   if(j.Preset.Cadence==CadenceMode.MixedVfr){result.Reason="区間ごとの混在VFR解析を使用";return result;}
    if(!j.Preset.AutoInverseTelecine){result.Reason="自動逆テレシネOFF";return result;}
    if(Math.Abs(j.Metadata.Fps-30000.0/1001)>0.015){result.Reason="29.97fps以外：元のフィルタを使用";return result;}
    var windows=Windows(j.Metadata,Commercials.Keep(j));

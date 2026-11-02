@@ -81,6 +81,8 @@ namespace TsEncodeFlow {
    if(subtitle!=null)a.AddRange(new[]{"-map","1:0","-c:s",p.Container==Container.mp4?"mov_text":"ass","-metadata:s:s:0","language=jpn","-metadata:s:s:0","title=日本語","-disposition:s:0","0"});
    if(chapterFile!=null)a.AddRange(new[]{"-map_chapters",subtitle==null?"1":"2"});
    else a.AddRange(new[]{"-map_metadata","-1"});
+   int audioCount=AdvancedOptions.Enabled(p)?AdvancedOptions.Audio(p,m).Count:m.AudioIndex>=0?1:0;
+   for(int i=0;i<audioCount;i++)a.AddRange(new[]{"-map_metadata:s:a:"+i,"0:s:a:"+i});
    if(p.EmbedMetadata) {
     var date=new DateTimeOffset(DateTime.SpecifyKind(m.Start,DateTimeKind.Unspecified),TimeSpan.FromHours(9));
     foreach(var item in new Dictionary<string,string>{{"title",m.Title},{"show",m.Title},{"network",m.Channel},{"description",m.Description},{"comment",m.Channel+" / "+m.Start.ToString("yyyy/MM/dd HH:mm")+"\n"+m.Description+"\nServiceID: "+m.ServiceId+" / EventID: "+m.EventId},{"date",m.Start.ToString("yyyy-MM-dd")},{"creation_time",date.ToUniversalTime().ToString("O")},{"episode_id",m.Episode},{"service_id",m.ServiceId.ToString()},{"event_id",m.EventId.ToString()}})if(!string.IsNullOrEmpty(item.Value))a.AddRange(new[]{"-metadata",item.Key+"="+item.Value});

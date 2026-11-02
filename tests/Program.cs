@@ -46,6 +46,7 @@ static partial class Tests {
   }
  }
  [STAThread]static int Main(string[] args) {
+  if(args.Contains("--new-error-job")){RealV062(args).GetAwaiter().GetResult();return 0;}
   if(args.Contains("--anime-file")||args.Contains("--failed-job")){RealV061(args).GetAwaiter().GetResult();return 0;}
   if(args.Contains("--quality-smoke")){QualitySmoke(args).GetAwaiter().GetResult();return 0;}
   if(args.Contains("--logo-library-live")){LogoLibraryLive(Path.GetFullPath(Option(args,"--logo-library-live")),Path.GetFullPath(Option(args,"--input")),Path.GetFullPath(Option(args,"--logo")),Path.GetFullPath(Option(args,"--tool-data"))).GetAwaiter().GetResult();return 0;}
@@ -88,6 +89,7 @@ static partial class Tests {
    string changeData=Path.Combine(root,"ChangePresetQueue");using(var queue=new QueueManager(changeData)){queue.Paused=true;var job=queue.Enqueue(retryInput);queue.Cancel(job.Id);job.Metadata=new Metadata();job.Commercials=new CmPlan();job.Glyphs.Add(new DrcsGlyph());string outputFolder=job.OutputFolder;var replacementPreset=new Preset {Name="個別設定",Engine=Engine.VCEEncC,Width=640,Height=360};Store.Save(Path.Combine(changeData,"Inbox","change.json"),new QueueManager.Request {Action="change-preset",JobId=job.Id,Profile=new BatchProfile {Preset=replacementPreset}});queue.Tick();Check(job.State==State.Cancelled&&job.Preset.Width==640&&job.Metadata==null&&job.Commercials==null&&job.Glyphs.Count==0&&job.OutputFolder==outputFolder,"cancelled job preset changes through worker inbox, resets analysis and stays stopped");replacementPreset.Width=320;Check(job.Preset.Width==640,"job preset replacement is an independent snapshot");queue.Retry(job.Id);Check(job.State==State.Waiting,"changed job starts only on explicit retry");Reject(()=>queue.ChangePreset(job.Id,new Preset()),"preset change rejects waiting or active jobs");}
    NameConditionTests();
    QueueV061(root);
+   AudioSelectionV062();
    AdvancedTests(root);
    if(args.Contains("--advanced-live"))AdvancedLive(root,args).GetAwaiter().GetResult();
    TelecineTests();

@@ -18,7 +18,9 @@ namespace TsEncodeFlow {
    double fps=OutputFps(p,m,mode);if(!double.IsFinite(fps)||fps<=0)throw new ArgumentException("映像区間の出力FPSを取得できません。");
    // Y4M has no per-frame timestamps. Fill holes on the source clock before
    // sending it to the hardware encoder, rather than shortening the video.
-   return Video(p,m,mode)+",setpts=PTS-STARTPTS,fps=fps="+Rate(fps)+":start_time=0:round=near";
+   // Input seeking already gives timestamps relative to the requested start.
+   // STARTPTS would erase a delayed first decodable frame after a damaged GOP.
+   return Video(p,m,mode)+",fps=fps="+Rate(fps)+":start_time=0:round=near";
   }
   public static string Video(Preset preset,Metadata metadata,string mode="preset") {
    var p=Store.Clone(preset);var m=Store.Clone(metadata);p.Fps="";m.InverseTelecine=mode=="film"||mode=="preset"&&metadata.InverseTelecine;

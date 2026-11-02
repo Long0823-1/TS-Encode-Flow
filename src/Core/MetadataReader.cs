@@ -12,6 +12,13 @@ using System.Threading.Tasks;
 
 namespace TsEncodeFlow {
  public static class MetadataReader {
+  public static string[] ProbeInput()=>new[]{"-probesize","20000000","-analyzeduration","10000000"};
+  public static int Pid(Dictionary<string,object> stream){string value=Text(stream,"id");return value.StartsWith("0x",StringComparison.OrdinalIgnoreCase)&&int.TryParse(value.Substring(2),NumberStyles.HexNumber,CultureInfo.InvariantCulture,out int pid)?pid:0;}
+  public static List<Dictionary<string,object>> DecodableAudio(IEnumerable<Dictionary<string,object>> streams,Action<string> log) {
+   var advertised=streams.Where(x=>Text(x,"codec_type")=="audio").ToList();var result=new List<Dictionary<string,object>>();foreach(var stream in advertised) {
+    if(Int(stream,"channels")<=0||Int(stream,"sample_rate")<=0||string.IsNullOrWhiteSpace(Text(stream,"codec_name"))){log("音声ストリーム "+Int(stream,"index")+"（PID "+Pid(stream)+"）はチャンネル数・サンプルレート等を取得できないため、自動選択から除外します。");continue;}result.Add(stream);
+   }if(advertised.Count>0&&result.Count==0)throw new InvalidDataException("音声ストリームはありますが、復号に必要なチャンネル数・サンプルレートを取得できません。入力の受信エラーとログを確認してください。");return result;
+  }
   public static Dictionary<string,object> Obj(object value)=>value as Dictionary<string,object>??new Dictionary<string,object>();
   public static IEnumerable<object> Items(Dictionary<string,object> value,string key){object v;return value.TryGetValue(key,out v)&&v is IEnumerable&&!(v is string)?((IEnumerable)v).Cast<object>():Enumerable.Empty<object>();}
   public static string Text(Dictionary<string,object> value,string key,string fallback=""){object v;return value.TryGetValue(key,out v)&&v!=null?Convert.ToString(v,CultureInfo.InvariantCulture):fallback;}
@@ -33,11 +40,11 @@ namespace TsEncodeFlow {
    if(video==null||Int(video,"width")<2||Int(video,"height")<2)throw new InvalidDataException("有効な映像がありません。");
    if(program==null)program=programs.FirstOrDefault(p=>Items(p,"streams").Select(Obj).Any(s=>Int(s,"index")==Int(video,"index")));
    if(program!=null)streams=Items(program,"streams").Select(Obj).ToList();
-   var audio=streams.FirstOrDefault(s=>Text(s,"codec_type")=="audio");
+   var validAudio=DecodableAudio(streams,log);var audio=validAudio.FirstOrDefault();
    var subtitle=streams.FirstOrDefault(s=>Text(s,"codec_type")=="subtitle");
    var m=new Metadata {OriginalName=Path.GetFileNameWithoutExtension(file),Start=File.GetLastWriteTime(file),Width=Int(video,"width"),Height=Int(video,"height"),VideoIndex=Int(video,"index"),AudioIndex=audio==null?-1:Int(audio,"index"),ServiceId=program==null?0:Int(program,"program_id"),Sar=Ratio(Text(video,"sample_aspect_ratio","1:1")),Fps=Ratio(Text(video,"r_frame_rate")),Duration=Number(Text(video,"duration")),Source="ファイル名・更新時刻（番組日時が取得できない場合の代替）"};
    m.ColorSpace=Text(video,"color_space");m.ColorRange=Text(video,"color_range");m.ColorPrimaries=Text(video,"color_primaries");m.ColorTransfer=Text(video,"color_transfer");m.PixelFormat=Text(video,"pix_fmt");m.FieldOrder=Text(video,"field_order");
-   m.AudioTracks=streams.Where(x=>Text(x,"codec_type")=="audio").Select(x=>{var tags=Obj(x.ContainsKey("tags")?x["tags"]:null);var disposition=Obj(x.ContainsKey("disposition")?x["disposition"]:null);return new AudioTrack {Index=Int(x,"index"),Channels=Int(x,"channels"),Codec=Text(x,"codec_name"),Language=Text(tags,"language","und"),Title=Text(tags,"title"),Layout=Text(x,"channel_layout"),Default=Int(disposition,"default")!=0,Commentary=Int(disposition,"comment")!=0,Start=Number(Text(x,"start_time"))};}).ToList();
+   m.AudioTracks=validAudio.Select(x=>{var tags=Obj(x.ContainsKey("tags")?x["tags"]:null);var disposition=Obj(x.ContainsKey("disposition")?x["disposition"]:null);return new AudioTrack {Index=Int(x,"index"),Pid=Pid(x),Channels=Int(x,"channels"),Codec=Text(x,"codec_name"),Language=Text(tags,"language","und"),Title=Text(tags,"title"),Layout=Text(x,"channel_layout"),Default=Int(disposition,"default")!=0,Commentary=Int(disposition,"comment")!=0,Start=Number(Text(x,"start_time"))};}).ToList();
    if(m.Sar<=0||double.IsNaN(m.Sar)||double.IsInfinity(m.Sar))m.Sar=1;
    m.VideoStart=Number(Text(video,"start_time"));m.AudioStart=audio==null?m.VideoStart:Number(Text(audio,"start_time"));m.FormatStart=Number(Text(Obj(data.ContainsKey("format")?data["format"]:null),"start_time"));
    string videoPid=Text(video,"id");if(videoPid.StartsWith("0x")&&int.TryParse(videoPid.Substring(2),NumberStyles.HexNumber,CultureInfo.InvariantCulture,out int pidValue))m.VideoPid=pidValue;

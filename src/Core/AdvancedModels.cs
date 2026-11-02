@@ -8,7 +8,7 @@ namespace TsEncodeFlow {
  public enum VideoMatrix { Preserve, Bt709, Smpte170m, Bt2020nc }
  public enum DitherMode { None, Bayer, ErrorDiffusion }
  public sealed class AudioTrack {
-  public int Index,Channels;
+  public int Index,Channels,Pid;
   public string Codec="",Language="und",Title="",Layout="";
   public bool Default,Commentary;
   public double Start;

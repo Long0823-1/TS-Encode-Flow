@@ -85,18 +85,21 @@ namespace TsEncodeFlow {
     Store.Save(manifest,run);j.Progress=Math.Min(90,90.0*(part.Index+1)/run.Parts.Count);changed();
    }
    token.ThrowIfCancellationRequested();j.Message="映像区間と音声トラックを結合中";changed();
+   await Mux(j,s,run,folder,output,token,log);j.Command="区間パイプライン："+manifest;
+   if(!j.Preset.ResumeChunks)foreach(var part in run.Parts)if(File.Exists(part.File))File.Delete(part.File);
+  }
+  public static async Task Mux(Job j,Settings s,AdvancedRun run,string folder,string output,CancellationToken token,Action<string> log) {
    string list=Path.Combine(folder,"video.ffconcat");var text=new StringBuilder("ffconcat version 1.0\n");foreach(var part in run.Parts)text.Append("file '").Append(Path.GetFileName(part.File)).Append("'\nduration ").Append(Commercials.N(part.End-part.Start)).Append('\n');File.WriteAllText(list,text.ToString(),new UTF8Encoding(false));
    var args=new List<string>{"-hide_banner","-nostdin","-y","-f","concat","-safe","1","-i",list};var tracks=AdvancedOptions.Audio(j.Preset,j.Metadata);var keep=Commercials.Keep(j);var af=new StringBuilder();
-   if(keep==null&&j.Preset.CopyAudio)args.AddRange(new[]{"-ss",Commercials.N(SourceStart(j.Metadata,0))});args.AddRange(new[]{"-i",j.Input,"-map","0:v:0","-c:v","copy"});
+   if(keep==null&&j.Preset.CopyAudio)args.AddRange(new[]{"-ss",Commercials.N(SourceStart(j.Metadata,0))});args.AddRange(MetadataReader.ProbeInput());args.AddRange(new[]{"-i",j.Input,"-map","0:v:0","-c:v","copy"});
    for(int i=0;i<tracks.Count;i++) {
-    var track=tracks[i];if(keep==null&&j.Preset.CopyAudio)args.AddRange(new[]{"-map","1:"+track.Index});else {var ranges=keep??new List<TimeRange>{new(){Start=0,End=j.Metadata.Duration}};var m=Store.Clone(j.Metadata);m.AudioIndex=track.Index;m.AudioStart=track.Start;string f=Commercials.AudioFilter(ranges,m).Replace("[0:"+track.Index+"]","[1:"+track.Index+"]");foreach(string label in new[]{"ai","a"})for(int k=ranges.Count-1;k>=0;k--)f=f.Replace("["+label+k+"]","[t"+i+label+k+"]");f=f.Replace("[aout]","[ao"+i+"]");if(af.Length>0)af.Append(';');af.Append(f);args.AddRange(new[]{"-map","[ao"+i+"]"});}
+    var track=tracks[i];string spec=track.Pid>0?"1:i:0x"+track.Pid.ToString("x",CultureInfo.InvariantCulture):"1:"+track.Index;if(keep==null&&j.Preset.CopyAudio)args.AddRange(new[]{"-map",spec});else {var ranges=keep??new List<TimeRange>{new(){Start=0,End=j.Metadata.Duration}};var m=Store.Clone(j.Metadata);m.AudioIndex=track.Index;m.AudioStart=track.Start;string f=Commercials.AudioFilter(ranges,m).Replace("[0:"+track.Index+"]","["+spec+"]");foreach(string label in new[]{"ai","a"})for(int k=ranges.Count-1;k>=0;k--)f=f.Replace("["+label+k+"]","[t"+i+label+k+"]");f=f.Replace("[aout]","[ao"+i+"]");if(af.Length>0)af.Append(';');af.Append(f);args.AddRange(new[]{"-map","[ao"+i+"]"});}
     args.AddRange(new[]{"-metadata:s:a:"+i,"language="+track.Language,"-metadata:s:a:"+i,"title="+track.Title,"-disposition:a:"+i,(track.Default?"default":"0")+(track.Commentary?"+comment":"")});
    }
    if(af.Length>0){string filter=Path.Combine(folder,"audio-filter.txt");File.WriteAllText(filter,af.ToString());args.AddRange(new[]{"-/filter_complex",filter});}
    args.AddRange(new[]{"-c:a",j.Preset.CopyAudio&&keep==null?"copy":"aac"});if(!j.Preset.CopyAudio||keep!=null)args.AddRange(new[]{"-b:a",j.Preset.AudioBitrate+"k"});
    args.AddRange(new[]{"-map_metadata","-1","-map_chapters","-1","-t",Commercials.N(Commercials.Duration(j))});if(j.Preset.Container==Container.mp4&&j.Preset.Codec==Codec.HEVC)args.AddRange(new[]{"-tag:v","hvc1"});args.Add(output);
-   var mux=await Processes.Run(s.Ffmpeg,args,token,log);if(mux.ExitCode!=0)throw new InvalidDataException("区間・複数音声の結合失敗："+Converter.Tail(mux.Error));j.Command="区間パイプライン："+manifest;
-   if(!j.Preset.ResumeChunks)foreach(var part in run.Parts)if(File.Exists(part.File))File.Delete(part.File);
+   var mux=await Processes.Run(s.Ffmpeg,args,token,log);if(mux.ExitCode!=0)throw new InvalidDataException("区間・複数音声の結合失敗："+Converter.Tail(mux.Error));
   }
  }
 }

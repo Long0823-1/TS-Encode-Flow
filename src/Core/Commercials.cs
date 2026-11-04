@@ -13,7 +13,7 @@ namespace TsEncodeFlow {
  public enum CmSource { Sidecar,Comskip,Amatsukaze }
  public sealed class TimeRange {public double Start,End;public bool IsCommercial;}
  public sealed class CmPlan {
-  public string Fingerprint="",Source="",ChapterFile="";
+  public string Fingerprint="",Source="",ChapterFile="",TimelineIdentity="";
   public bool Approved,Reviewed,HasVideoStart;
   public double SourceVideoStart;
   public double Duration,Fps;
@@ -66,18 +66,21 @@ namespace TsEncodeFlow {
   public static async Task Prepare(Job j,Settings s,string data,CancellationToken token,Action<string> log,Action changed) {
    if(j.Preset.CmMode==CmMode.Off)return;
    string fingerprint=Store.Fingerprint(j.Input),folder=Folder(j,data);Directory.CreateDirectory(folder);
-   if(j.Commercials==null||j.Commercials.Fingerprint!=fingerprint) {
+   string timeline=j.Preset.RepairTimeline?Store.Fingerprint(j.MediaInput):"";
+   if(j.Commercials==null||j.Commercials.Fingerprint!=fingerprint||j.Commercials.TimelineIdentity!=timeline) {
     string file=new[]{j.Input+".edl",Path.ChangeExtension(j.Input,".edl"),j.Input+".trim.avs",Path.ChangeExtension(j.Input,".trim.avs")}.FirstOrDefault(File.Exists);
     if(j.Preset.CmSource==CmSource.Comskip)throw new InvalidDataException("旧CM解析方式は廃止されました。プリセットでAmatsukaze方式を選択してください。");
     if(j.Preset.CmSource==CmSource.Amatsukaze)j.Commercials=await CmAnalysis.Analyze(j,s,data,token,log,changed);
+    else if(j.Preset.RepairTimeline&&file!=null)throw new InvalidDataException("時刻欠落の補正時は元TS基準のEDL/Trimを適用できません。自動解析か手動入力を選んでください。");
     else j.Commercials=file==null?Build(Array.Empty<TimeRange>(),j.Metadata.Duration,j.Metadata.Fps,fingerprint,"手動入力待ち"):Import(file,j.Metadata,j.Preset,fingerprint);
     if(file==null&&j.Preset.CmSource==CmSource.Sidecar&&!j.Preset.CmReview)throw new InvalidDataException("CM区間ファイルがありません。確認を有効にして手動入力するか、Amatsukaze方式を選択してください。");
+    j.Commercials.TimelineIdentity=timeline;
     j.Commercials.Approved=!j.Preset.CmReview;changed();
    }
    // Revalidate persisted intervals rather than trusting a stale or edited queue file.
    if(j.Commercials.HasVideoStart){j.Metadata.VideoStart=j.Commercials.SourceVideoStart;j.Metadata.Duration=j.Commercials.Duration;}
    var validated=Build(j.Commercials.Segments.Where(x=>x.IsCommercial),j.Metadata.Duration,j.Metadata.Fps,fingerprint,j.Commercials.Source);
-   validated.HasVideoStart=j.Commercials.HasVideoStart;validated.SourceVideoStart=j.Commercials.SourceVideoStart;
+   validated.TimelineIdentity=timeline;validated.HasVideoStart=j.Commercials.HasVideoStart;validated.SourceVideoStart=j.Commercials.SourceVideoStart;
    validated.Approved=j.Commercials.Approved;validated.Reviewed=j.Commercials.Reviewed;j.Commercials=validated;
    if(!validated.Approved){changed();throw new CmReviewException("CM候補を確認してください。「CM・タイムリスト」で区間を修正・確定すると続行します。");}
    if(j.Preset.CmMode==CmMode.Cut&&validated.Keep.Count==0)throw new ArgumentException("全編がCMになっています。本編を1区間以上残してください。");

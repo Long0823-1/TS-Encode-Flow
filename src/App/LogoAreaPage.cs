@@ -38,7 +38,7 @@ sealed class LogoAreaPage:ContentPage {
    if(Store.Fingerprint(job.Input)!=fingerprint)throw new IOException("入力TSが変更されています。キューから開き直してください。");
    selected.Text="1フレームを読み込み中…";Directory.CreateDirectory(Path.Combine(client.Data,"LogoPreview"));string file=Path.Combine(client.Data,"LogoPreview",Guid.NewGuid().ToString("N")+".png");
    try {
-    var result=await Processes.Run(client.Settings.Ffmpeg,new[]{"-v","error","-ss",t.ToString("R",CultureInfo.InvariantCulture),"-i",job.Input,"-map","0:"+job.Metadata.VideoIndex,"-frames:v","1","-vf","scale=trunc(iw*sar/2)*2:ih,setsar=1,scale=960:-2","-an","-sn","-dn","-y",file},stop.Token,null,60);
+    var result=await Processes.Run(client.Settings.Ffmpeg,new[]{"-v","error","-ss",t.ToString("R",CultureInfo.InvariantCulture),"-i",TimelineRepair.CachedInput(job,client.Settings,client.Data),"-map","0:"+job.Metadata.VideoIndex,"-frames:v","1","-vf","scale=trunc(iw*sar/2)*2:ih,setsar=1,scale=960:-2","-an","-sn","-dn","-y",file},stop.Token,null,60);
     stop.Token.ThrowIfCancellationRequested();if(result.ExitCode!=0||!File.Exists(file))throw new IOException("プレビューを取得できません。表示位置とFFmpegの設定を確認してください。\n"+result.Error);
     using var stream=File.OpenRead(file);var img=Microsoft.Maui.Graphics.Platform.PlatformImage.FromStream(stream);drawing.Image?.Dispose();drawing.Image=img;preview.Invalidate();
     if(previewFile!=null)File.Delete(previewFile);previewFile=file;file=null!;selected.Text="ロゴ全体をドラッグして囲んでください。座標の数値入力もできます。";

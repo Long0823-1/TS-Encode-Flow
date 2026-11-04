@@ -24,12 +24,12 @@ namespace TsEncodeFlow {
    string work=Path.Combine(Commercials.Folder(job,data),"cm-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(work);
    job.Message="元TSのフレーム時刻を確認中";changed();
    string cache=Path.Combine(Commercials.Folder(job,data),"frame-times.csv"),identity=cache+".identity";
-   string identityValue=Store.Fingerprint(job.Input)+"|"+job.Metadata.VideoIndex;
+   string identityValue=Store.Fingerprint(job.MediaInput)+"|"+job.Metadata.VideoIndex;
    string frameIdentity=identityValue+"|"+Store.Fingerprint(settings.Ffprobe)+"|streamed-frames-v2";
    if(!File.Exists(cache)||!File.Exists(identity)||File.ReadAllText(identity)!=frameIdentity) {
     string pending=cache+"."+Guid.NewGuid().ToString("N")+".tmp";
     try {
-     var frames=await Processes.RunToFile(settings.Ffprobe,new[]{"-v","error","-threads","4","-select_streams",job.Metadata.VideoIndex.ToString(),"-show_frames","-show_entries","frame=best_effort_timestamp_time","-of","csv=p=0",job.Input},pending,token);
+     var frames=await Processes.RunToFile(settings.Ffprobe,new[]{"-v","error","-threads","4","-select_streams",job.Metadata.VideoIndex.ToString(),"-show_frames","-show_entries","frame=best_effort_timestamp_time","-of","csv=p=0",job.MediaInput},pending,token);
      if(frames.ExitCode!=0)throw new InvalidDataException("元TSの時間軸を取得できません："+Converter.Tail(frames.Error));
      token.ThrowIfCancellationRequested();File.Move(pending,cache,true);File.WriteAllText(identity,frameIdentity);
     }finally{if(File.Exists(pending))File.Delete(pending);}
@@ -42,7 +42,7 @@ namespace TsEncodeFlow {
    Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
    var encoding=Encoding.GetEncoding(932,EncoderFallback.ExceptionFallback,DecoderFallback.ExceptionFallback);
    string avs=Path.Combine(work,"source.avs"),privateIndex=Path.Combine(Commercials.Folder(job,data),"source-index.lwi");
-   string sourceIdentity=Store.Fingerprint(job.Input)+"|"+Store.Fingerprint(plugin),privateIdentity=sourceIdentity+"|"+job.Metadata.VideoIndex+"|"+job.Metadata.AudioIndex;
+   string sourceIdentity=Store.Fingerprint(job.MediaInput)+"|"+Store.Fingerprint(plugin),privateIdentity=sourceIdentity+"|"+job.Metadata.VideoIndex+"|"+job.Metadata.AudioIndex;
    int nativeVideo=-1,nativeAudio=-1;
    string Script(string source,int first=0,int count=0) {
     string clip="AudioDub(v,a)"+(count>0?".Trim("+first+",-"+count+")":"");
@@ -55,13 +55,13 @@ namespace TsEncodeFlow {
    }
    job.Message="元TSのCM解析インデックスを準備中（再エンコードなし）";changed();
    if(!File.Exists(privateIndex)||!File.Exists(privateIndex+".identity")||File.ReadAllText(privateIndex+".identity")!=privateIdentity) {
-    using var lease=await CmIndex.Lock(job.Input,token);
-    string sharedIndex=Path.GetFullPath(job.Input)+".lwi",cacheDir=Path.Combine(data,"Commercials","IndexCache");Directory.CreateDirectory(cacheDir);
-    string canonical=Path.Combine(cacheDir,CmIndex.Key(job.Input)+".lwi"),receipt=canonical+".identity";
+    using var lease=await CmIndex.Lock(job.MediaInput,token);
+    string sharedIndex=Path.GetFullPath(job.MediaInput)+".lwi",cacheDir=Path.Combine(data,"Commercials","IndexCache");Directory.CreateDirectory(cacheDir);
+    string canonical=Path.Combine(cacheDir,CmIndex.Key(job.MediaInput)+".lwi"),receipt=canonical+".identity";
     if(!File.Exists(canonical)||!File.Exists(receipt)||File.ReadAllText(receipt)!=sourceIdentity) {
      string backup=Path.Combine(work,"previous-source-index.lwi");bool hadIndex=File.Exists(sharedIndex);if(hadIndex)File.Move(sharedIndex,backup);
      try {
-      File.WriteAllText(avs,Script(job.Input),encoding);await Info();
+      File.WriteAllText(avs,Script(job.MediaInput),encoding);await Info();
       if(!File.Exists(sharedIndex))throw new InvalidDataException("CMインデックスを作成できません。録画フォルダーの書き込み権限を確認してください。");
       File.Copy(sharedIndex,canonical,true);File.WriteAllText(receipt,sourceIdentity);
      }finally {
@@ -73,7 +73,7 @@ namespace TsEncodeFlow {
     File.Copy(canonical,privateIndex,true);File.WriteAllText(privateIndex+".identity",privateIdentity);
    }
    async Task<(long Position,double Time)[]> Packets(int stream) {
-    var probe=await Processes.Run(settings.Ffprobe,new[]{"-v","error","-read_intervals","%+10","-select_streams",stream.ToString(),"-show_packets","-show_entries","packet=pos,pts_time","-of","json",job.Input},token);
+    var probe=await Processes.Run(settings.Ffprobe,new[]{"-v","error","-read_intervals","%+10","-select_streams",stream.ToString(),"-show_packets","-show_entries","packet=pos,pts_time","-of","json",job.MediaInput},token);
     if(probe.ExitCode!=0)throw new InvalidDataException("CM解析のトラック照合用パケットを取得できません。");
     var json=Store.Json.Deserialize<Dictionary<string,object>>(probe.Output);
     return MetadataReader.Items(json,"packets").Select(MetadataReader.Obj).Select(p=>(long.TryParse(MetadataReader.Text(p,"pos"),out var pos)?pos:-1,double.TryParse(MetadataReader.Text(p,"pts_time"),NumberStyles.Float,CultureInfo.InvariantCulture,out var time)?time:double.NaN)).ToArray();
@@ -83,7 +83,7 @@ namespace TsEncodeFlow {
    File.WriteAllText(avs,Script(privateIndex),encoding);var sourceInfo=await Info();
    if(sourceInfo.Width!=job.Metadata.Width||sourceInfo.Height!=job.Metadata.Height)throw new InvalidDataException("CM解析の映像形式が元TSと一致しません。");
    double[] indexed=CmIndex.Read(privateIndex,nativeVideo,sourceInfo.Count,out var widths,out var heights);
-   int skip=CmIndex.Align(indexed,times.Select(t=>t+headerVideoStart).ToArray());
+   int skip=CmIndex.Align(indexed,times.Select(t=>t+headerVideoStart).ToArray(),job.Preset.RepairTimeline?1/job.Metadata.Fps:0,log);
    for(int i=skip;i<skip+times.Length;i++)if(widths[i]!=job.Metadata.Width||heights[i]!=job.Metadata.Height)throw new InvalidDataException("解析区間の途中で映像解像度が変化しています。自動適用を停止しました。");
    log("元TSを直接解析：先頭調整 "+skip+" フレーム / 対応確認 "+times.Length+" フレーム / インデックス "+new FileInfo(privateIndex).Length+" bytes");
    File.WriteAllText(avs,Script(privateIndex,skip,times.Length),encoding);var aligned=await Info();
@@ -102,7 +102,7 @@ namespace TsEncodeFlow {
       log("指定範囲から局ロゴ候補を作成："+area);
       var generated=await Processes.Run(logoExe,new[]{avs,"-channel",StationLogos.Key(job),"-logo-dir",Path.Combine(candidateData,"Logos"),"-logo-area",area.ToString(),"-logo-generate-only"},token,log);
       token.ThrowIfCancellationRequested();if(generated.ExitCode!=0)return false;
-      if(Store.Fingerprint(job.Input)+"|"+job.Metadata.VideoIndex!=identityValue)throw new IOException("ロゴ生成中に入力TSが変更されました。");
+      if(Store.Fingerprint(job.MediaInput)+"|"+job.Metadata.VideoIndex!=identityValue)throw new IOException("ロゴ生成中に入力TSが変更されました。");
       job.LogoCandidate=StationLogos.Find(candidateData,job);if(job.LogoCandidate==null)return false;LogoCandidates.Read(job.LogoCandidate,job.Metadata);
       cached=StationLogos.Find(data,job);
       if(cached==null&&(generated.Output+generated.Error).Contains("CMLOGO_REVIEW_REQUIRED")){changed();throw new LogoReviewException();}
@@ -116,7 +116,7 @@ namespace TsEncodeFlow {
    var detected=await Processes.Run(chapter,chapterArgs,token,log);if(detected.ExitCode!=0||!File.Exists(chapters))throw new InvalidDataException("無音・シーンチェンジ検出に失敗しました。");
    job.Message="join_logo_scpでCM区間を判定中";changed();var joinArgs=new List<string>{"-inscp",chapters,"-incmd",script,"-o",trim,"-oscp",Path.Combine(work,"timeline.txt")};if(useLogo)joinArgs.AddRange(new[]{"-inlogo",logoOutput});
    var joined=await Processes.Run(jls,joinArgs,token,log);if(joined.ExitCode!=0||!File.Exists(trim))throw new InvalidDataException("join_logo_scpのCM判定に失敗しました。");
-   if(Store.Fingerprint(job.Input)+"|"+job.Metadata.VideoIndex!=identityValue)throw new IOException("CM解析中に入力TSが更新されました。再解析してください。");
+   if(Store.Fingerprint(job.MediaInput)+"|"+job.Metadata.VideoIndex!=identityValue)throw new IOException("CM解析中に入力TSが更新されました。再解析してください。");
    var plan=Commercials.Import(trim,job.Metadata,new Preset {CmTrimFps=job.Metadata.Fps.ToString("R",CultureInfo.InvariantCulture)},Store.Fingerprint(job.Input));plan.Source=useLogo?"logoframe / chapter_exe / join_logo_scp":job.Preset.CmNoLogo?"chapter_exe / join_logo_scp（ロゴなし）":"chapter_exe / join_logo_scp（自動ロゴ取得失敗によりロゴなしへ切替）";
    if(protectTail){var safe=plan.Segments.Where(x=>x.IsCommercial&&x.Start<plan.Duration-1).Select(x=>new TimeRange {Start=x.Start,End=Math.Min(x.End,plan.Duration-1)});plan=Commercials.Build(safe,plan.Duration,plan.Fps,plan.Fingerprint,plan.Source+"（末尾時刻差あり・最後の1秒を保持）");log("末尾フレームに時刻差があるため最後の1秒をCM削除から保護しました。");}
    plan.HasVideoStart=true;plan.SourceVideoStart=job.Metadata.VideoStart;

@@ -61,12 +61,12 @@ namespace TsEncodeFlow {
   }
   public static async Task<TelecineSample> Probe(Job j,Settings settings,double start,double seconds,CancellationToken token,Action<string> log,bool verifyAll=true) {
    token.ThrowIfCancellationRequested();var sequence=new List<string>();int tff=0,bff=0,progressive=0;
-   var args=new[]{"-hide_banner","-nostdin","-ss",Commercials.N(AdvancedEncoder.SourceStart(j.Metadata,start)),"-i",j.Input,"-map","0:"+j.Metadata.VideoIndex,"-t",Commercials.N(seconds),"-vf","idet,metadata=mode=print","-an","-sn","-dn","-f","null","-"};
+   var args=new[]{"-hide_banner","-nostdin","-ss",Commercials.N(AdvancedEncoder.SourceStart(j.Metadata,start)),"-i",j.MediaInput,"-map","0:"+j.Metadata.VideoIndex,"-t",Commercials.N(seconds),"-vf","idet,metadata=mode=print","-an","-sn","-dn","-f","null","-"};
    var run=await Processes.Run(settings.Ffmpeg,args,token,line=>{const string key="lavfi.idet.repeated.current_frame=";int at=line.IndexOf(key,StringComparison.Ordinal);if(at>=0)sequence.Add(line.Substring(at+key.Length).Trim());const string field="lavfi.idet.multiple.current_frame=";at=line.IndexOf(field,StringComparison.Ordinal);if(at>=0){string value=line.Substring(at+field.Length).Trim();if(value=="tff")tff++;else if(value=="bff")bff++;else if(value=="progressive")progressive++;}},120);
    if(run.ExitCode!=0)throw new System.IO.InvalidDataException("逆テレシネ解析に失敗しました："+Converter.Tail(run.Error));
    var sample=Classify(sequence);sample.Start=start;sample.Seconds=seconds;sample.DetectedTop=tff;sample.DetectedBottom=bff;sample.DetectedProgressive=progressive;sample.Method=sample.Film?"3:2フィールド周期":"証拠不足";
    if(!sample.Film&&seconds>=4&&(verifyAll||sample.Top>=4&&sample.Bottom>=4)) {
-    var match=await Processes.Run(settings.Ffmpeg,new[]{"-hide_banner","-nostdin","-loglevel","debug","-ss",Commercials.N(AdvancedEncoder.SourceStart(j.Metadata,start)),"-i",j.Input,"-map","0:"+j.Metadata.VideoIndex,"-t",Commercials.N(Math.Min(8,seconds)),"-vf","fieldmatch=order=auto:combmatch=full:combdbg=pcnub,decimate=cycle=5","-an","-sn","-dn","-f","null","-"},token,line=>MatchLine(sample,line),180);
+    var match=await Processes.Run(settings.Ffmpeg,new[]{"-hide_banner","-nostdin","-loglevel","debug","-ss",Commercials.N(AdvancedEncoder.SourceStart(j.Metadata,start)),"-i",j.MediaInput,"-map","0:"+j.Metadata.VideoIndex,"-t",Commercials.N(Math.Min(8,seconds)),"-vf","fieldmatch=order=auto:combmatch=full:combdbg=pcnub,decimate=cycle=5","-an","-sn","-dn","-f","null","-"},token,line=>MatchLine(sample,line),180);
     if(match.ExitCode!=0)throw new System.IO.InvalidDataException("フィールドマッチ補助解析に失敗しました："+Converter.Tail(match.Error));
     sample.Film=MatchFilm(sample);sample.Contradiction=sample.MatchFrames>=120&&((double)sample.CombedFrames/sample.MatchFrames>0.15||sample.Cycles>=20&&(double)sample.DuplicateCycles/sample.Cycles<0.65);
     sample.Method=sample.Film?"フィールドマッチで縞修復＋5枚周期の重複を検証":sample.Contradiction?"24p固定と両立しない動きを検出":"静止・低動作等で判定保留";

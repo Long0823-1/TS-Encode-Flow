@@ -51,7 +51,7 @@ namespace TsEncodeFlow {
   public static void Warning(Job j,string message,Action<string> log){j.Metadata.SubtitleWarning=message;log("字幕の警告："+message);}
   static async Task<string> PrepareCore(Job j,Settings s,string data,CancellationToken token,Action<string> log,Action changed) {
    if(!j.Preset.KeepSubtitles){j.Metadata.SubtitleStatus="字幕保存OFF";return null;}if(j.Metadata.SubtitleIndex<0){j.Metadata.SubtitleStatus="字幕トラックなし";return null;}
-   string hash=Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Store.Fingerprint(j.Input)+"|"+j.Metadata.SubtitleIndex)));
+   string hash=Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Store.Fingerprint(j.MediaInput)+"|"+j.Metadata.SubtitleIndex)));
    string folder=Path.Combine(data,"Drcs","Scans",hash);Directory.CreateDirectory(folder);string subtitle=Path.Combine(folder,"subtitles.srt");
    if(j.Metadata.SubtitleCodec=="arib_caption") {
     if(!File.Exists(s.CaptionTool))throw new FileNotFoundException("字幕解析ツールがありません。配布ZIP全体を展開してください。",s.CaptionTool);
@@ -59,7 +59,7 @@ namespace TsEncodeFlow {
     if(File.Exists(file))try{scan=Store.Load<CaptionScan>(file,()=>new());}catch(InvalidDataException){}
     if(scan!=null&&scan.SchemaVersion<2)scan=null;
     if(scan==null) {
-     var result=await Processes.Run(s.CaptionTool,new[]{j.Input,j.Metadata.SubtitlePid.ToString(),folder},token,log);
+     var result=await Processes.Run(s.CaptionTool,new[]{j.MediaInput,j.Metadata.SubtitlePid.ToString(),folder},token,log);
      if(result.ExitCode!=0)throw new InvalidDataException("ARIB字幕の解析に失敗しました。終了コード："+result.ExitCode);
      scan=Store.Load<CaptionScan>(file,()=>throw new InvalidDataException("字幕解析結果がありません。"));
     }
@@ -73,7 +73,7 @@ namespace TsEncodeFlow {
     string text=Srt(scan,j.Metadata,map);if(text.Length==0){if(scan.SubtitlePackets>0&&scan.DecodeErrors>0)throw new InvalidDataException("字幕データを正常にデコードできませんでした。字幕を黙って破棄せず停止します。");j.Metadata.SubtitleStatus=scan.SubtitlePackets==0?"字幕の実データなし":"表示する字幕文なし";log(j.Metadata.SubtitleStatus+"（字幕PIDのTSパケット数："+scan.SubtitlePackets+"）");return null;}
     j.Metadata.SubtitleStatus="日本語字幕を保存";File.WriteAllText(subtitle,text,new UTF8Encoding(false));log("ARIB字幕を抽出し、保存済みDRCS対応表を適用しました。");return subtitle;
    }
-   var args=new[]{"-hide_banner","-nostdin","-y","-i",j.Input,"-map","0:"+j.Metadata.SubtitleIndex,"-c:s","srt",subtitle};
+   var args=new[]{"-hide_banner","-nostdin","-y","-i",j.MediaInput,"-map","0:"+j.Metadata.SubtitleIndex,"-c:s","srt",subtitle};
    var extraction=await Processes.Run(s.Ffmpeg,args,token,log);if(extraction.ExitCode!=0)throw new InvalidDataException("字幕をテキスト化できません。この字幕形式に対応したFFmpegが必要です。");return new FileInfo(subtitle).Length>0?subtitle:null;
   }
   public static Command Mux(Settings s,Preset p,Metadata m,string video,string subtitle,string output,string chapterFile=null) {

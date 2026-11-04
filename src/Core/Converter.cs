@@ -14,7 +14,7 @@ namespace TsEncodeFlow {
    try{using(var f=File.Open(file,FileMode.Open,FileAccess.Read,FileShare.Read)){return f.Length>0;}}catch(IOException){return false;}catch(UnauthorizedAccessException){return false;}
   }
   public static async Task Convert(Job j,Settings settings,CancellationToken token,Action<string> log,Action changed) {
-   Commands.Validate(j.Preset);if(!WritableRecording(j.Input))throw new IOException("入力が録画中または読み取りできません。");
+   j.WorkingInput="";j.TimelineRepair=null;Commands.Validate(j.Preset);if(!WritableRecording(j.Input))throw new IOException("入力が録画中または読み取りできません。");
    string fingerprint=Store.Fingerprint(j.Input);
    j.Metadata=await MetadataReader.Read(j.Input,settings,j.Preset.ServiceId,token,log);if(Store.Fingerprint(j.Input)!=fingerprint)throw new IOException("入力解析中にTSが変更されました。再試行してください。");j.Fingerprint=fingerprint;changed();
    j.Message="字幕・DRCSを確認中";changed();
@@ -23,6 +23,7 @@ namespace TsEncodeFlow {
     j.Message="TSのパケット・時刻を診断中";changed();string report=Path.Combine(dataFolder,"Diagnostics",j.Id+".json");
     j.Signal=Store.Load(report,()=>new SignalReport());if(j.Signal.Fingerprint!=fingerprint||j.Signal.VideoIndex!=j.Metadata.VideoIndex||j.Signal.AudioIndices!=string.Join(",",j.Metadata.AudioTracks.Select(x=>x.Index))){j.Signal=await SignalDiagnostics.Analyze(j.Input,j.Metadata,settings,token,log);Store.Save(report,j.Signal);}changed();
    }
+   await TimelineRepair.Prepare(j,settings,dataFolder,token,log,changed);
    j.Message="CM区間を確認中";changed();await Commercials.Prepare(j,settings,dataFolder,token,log,changed);
    var keep=Commercials.Keep(j);double expectedDuration=Commercials.Duration(j);
    j.Message="逆テレシネを判定中";changed();j.Telecine=await Telecine.Analyze(j,settings,token,log);changed();
@@ -55,13 +56,13 @@ namespace TsEncodeFlow {
     Command command=null;
     bool advanced=AdvancedOptions.Enabled(p);
     if(advanced){j.Message="詳細パイプラインを開始中";changed();await AdvancedEncoder.Run(j,s,dataFolder,temp,token,log,changed);}
-    else if(p.Engine==Engine.CPU)command=Commands.Ffmpeg(s,p,j.Metadata,j.Input,temp,cutFilter:cutFilter);
+    else if(p.Engine==Engine.CPU)command=Commands.Ffmpeg(s,p,j.Metadata,j.MediaInput,temp,cutFilter:cutFilter);
     else {
      string encoder=p.Engine==Engine.NVEncC?s.Nvenc:p.Engine==Engine.VCEEncC?s.Vceenc:s.Qsvenc;if(!File.Exists(encoder))throw new FileNotFoundException("選択したGPUエンコーダーがありません。設定タブでパスを指定してください。",encoder);
      bool prefiltered=!string.IsNullOrWhiteSpace(p.Fps)||j.Metadata.InverseTelecine;
      selected=Path.Combine(EncodeCache.WorkFolder(dataFolder,s,j),"selected"+(prefiltered?".mkv":".ts"));
      j.Message=prefiltered?"FPS・逆テレシネの可逆前処理中（空き容量が必要）":"対象サービスの映像・音声を分離中";changed();
-     var demux=Commands.Ffmpeg(s,p,j.Metadata,j.Input,selected,prefiltered,!prefiltered,cutFilter:cutFilter);
+     var demux=Commands.Ffmpeg(s,p,j.Metadata,j.MediaInput,selected,prefiltered,!prefiltered,cutFilter:cutFilter);
      log(demux.ToString());var result=await Processes.Run(demux.Exe,demux.Args,token,log);
      if(result.ExitCode!=0)throw new InvalidDataException("前処理失敗：終了コード"+result.ExitCode+"\n"+Tail(result.Error));
      command=Commands.Hardware(s,p,j.Metadata,selected,temp,prefiltered,j.Metadata.InverseTelecine?null:keep);
@@ -73,7 +74,7 @@ namespace TsEncodeFlow {
      j.Message="CM区間に合わせて音声を再構成中";changed();
      cutAudio=Path.Combine(Path.GetDirectoryName(final),".cut-audio-"+j.Id+".m4a");audioFilter=cutAudio+".filter";audioMux=Path.Combine(Path.GetDirectoryName(final),".cut-av-"+j.Id+Path.GetExtension(final));
      File.WriteAllText(audioFilter,Commercials.AudioFilter(keep,j.Metadata));
-     var audio=await Processes.Run(s.Ffmpeg,new[]{"-hide_banner","-nostdin","-y","-i",j.Input,"-/filter_complex",audioFilter,"-map","[aout]","-c:a","aac","-b:a",p.AudioBitrate+"k",cutAudio},token,log);
+     var audio=await Processes.Run(s.Ffmpeg,new[]{"-hide_banner","-nostdin","-y","-i",j.MediaInput,"-/filter_complex",audioFilter,"-map","[aout]","-c:a","aac","-b:a",p.AudioBitrate+"k",cutAudio},token,log);
      if(audio.ExitCode!=0)throw new InvalidDataException("CM音声の処理に失敗しました。");
      var combined=await Processes.Run(s.Ffmpeg,new[]{"-hide_banner","-nostdin","-y","-i",temp,"-i",cutAudio,"-map","0:v:0","-map","1:a:0","-c","copy","-map_metadata","-1","-map_chapters","-1",audioMux},token,log);
      if(combined.ExitCode!=0)throw new InvalidDataException("CM映像と音声の結合に失敗しました。");File.Delete(temp);temp=audioMux;audioMux=null;
@@ -103,7 +104,7 @@ namespace TsEncodeFlow {
     if(Store.Fingerprint(j.Input)!=fingerprint)throw new IOException("処理中に入力ファイルが更新されました。出力を確定しません。");
     if(p.CmMode!=CmMode.Off&&!MetadataReader.Items(data,"chapters").Any())throw new InvalidDataException("出力にCM・本編チャプターがありません。");
     File.Move(temp,final);temp=null;j.Output=final;j.Progress=100;
-    Store.Save(final+".encode.json",new {input=j.Input,output=final,preset=p,metadata=j.Metadata,command=j.Command,finished=DateTime.Now,commercials=j.Commercials,telecine=j.Telecine,advanced=j.Advanced,signal=j.Signal,validation=MetadataReader.Obj(data.ContainsKey("format")?data["format"]:null)});
+    Store.Save(final+".encode.json",new {input=j.Input,output=final,preset=p,metadata=j.Metadata,command=j.Command,finished=DateTime.Now,commercials=j.Commercials,telecine=j.Telecine,advanced=j.Advanced,signal=j.Signal,timelineRepair=j.TimelineRepair,validation=MetadataReader.Obj(data.ContainsKey("format")?data["format"]:null)});
     Commercials.Export(j);
     j.CacheCleanupWarning="";
     try{EncodeCache.ClearForJob(dataFolder,j);log("完了したジョブのエンコード用キャッシュを削除しました。");}

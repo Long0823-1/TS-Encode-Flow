@@ -12,7 +12,7 @@ namespace TsEncodeFlow {
  public static class AdvancedEncoder {
   public static double SourceStart(Metadata m,double videoSeconds)=>Math.Max(0,videoSeconds+m.VideoStart-m.FormatStart);
   public static string Hash(string file){using var f=File.OpenRead(file);return Convert.ToHexString(SHA256.HashData(f));}
-  public static string Key(Job j,Settings s)=>Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes("advanced-1|"+Store.Fingerprint(j.Input)+"|"+Store.Json.Serialize(j.Preset)+"|"+Store.Json.Serialize(Commercials.Keep(j))+"|"+Tool(s.Ffmpeg)+"|"+Tool(s.Ffprobe)+"|"+Tool(j.Preset.Engine==Engine.CPU?s.Ffmpeg:j.Preset.Engine==Engine.NVEncC?s.Nvenc:j.Preset.Engine==Engine.VCEEncC?s.Vceenc:s.Qsvenc)+"|"+Hash(string.IsNullOrEmpty(typeof(AdvancedEncoder).Assembly.Location)?Environment.ProcessPath:typeof(AdvancedEncoder).Assembly.Location))));
+  public static string Key(Job j,Settings s)=>Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes("advanced-1|"+Store.Fingerprint(j.MediaInput)+"|"+Store.Json.Serialize(j.Preset)+"|"+Store.Json.Serialize(Commercials.Keep(j))+"|"+Tool(s.Ffmpeg)+"|"+Tool(s.Ffprobe)+"|"+Tool(j.Preset.Engine==Engine.CPU?s.Ffmpeg:j.Preset.Engine==Engine.NVEncC?s.Nvenc:j.Preset.Engine==Engine.VCEEncC?s.Vceenc:s.Qsvenc)+"|"+Hash(string.IsNullOrEmpty(typeof(AdvancedEncoder).Assembly.Location)?Environment.ProcessPath:typeof(AdvancedEncoder).Assembly.Location))));
   static string Tool(string path)=>File.Exists(path)?Store.Fingerprint(path)+"|"+Hash(path):path;
   public static List<EncodePart> Parts(Job j) {
    var result=new List<EncodePart>();double cursor=0;var ranges=Commercials.Keep(j)??new(){new(){Start=0,End=j.Metadata.Duration}};
@@ -28,11 +28,11 @@ namespace TsEncodeFlow {
    string mode=evidence.Film?"film":!interlaced&&(j.Metadata.FieldOrder=="progressive"||frames>0&&(double)evidence.DetectedProgressive/frames>0.85)?"progressive":"video";
    log("混在FPS："+Commercials.N(part.Start)+"–"+Commercials.N(part.End)+"秒 / "+mode+" / 3:2="+evidence.Cadence.ToString("P1",CultureInfo.InvariantCulture));return mode;
   }
-  static List<string> Input(Job j,EncodePart part)=>new(){"-hide_banner","-nostdin","-y","-ss",Commercials.N(SourceStart(j.Metadata,part.Start)),"-i",j.Input,"-t",Commercials.N(part.End-part.Start),"-map","0:"+j.Metadata.VideoIndex,"-an","-sn","-dn"};
+  static List<string> Input(Job j,EncodePart part)=>new(){"-hide_banner","-nostdin","-y","-ss",Commercials.N(SourceStart(j.Metadata,part.Start)),"-i",j.MediaInput,"-t",Commercials.N(part.End-part.Start),"-map","0:"+j.Metadata.VideoIndex,"-an","-sn","-dn"};
   public static async Task EncodeVideo(Job j,Settings s,EncodePart part,string output,CancellationToken token,Action<string> log) {
    string filters=AdvancedFilters.Timeline(j.Preset,j.Metadata,part.Mode);var p=Store.Clone(j.Preset);p.Container=Container.mkv;p.ExtraArgs="";
    if(p.Engine==Engine.CPU) {
-    var c=Commands.Ffmpeg(s,p,j.Metadata,j.Input,output);var a=Input(j,part);a.AddRange(new[]{"-vf",filters,"-c:v",p.Codec==Codec.H264?"libx264":p.Codec==Codec.HEVC?"libx265":"libsvtav1"});
+    var c=Commands.Ffmpeg(s,p,j.Metadata,j.MediaInput,output);var a=Input(j,part);a.AddRange(new[]{"-vf",filters,"-c:v",p.Codec==Codec.H264?"libx264":p.Codec==Codec.HEVC?"libx265":"libsvtav1"});
     if(p.Speed.Length>0)a.AddRange(new[]{"-preset",p.Speed});a.AddRange(p.RateMode==RateMode.Quality?new[]{"-crf",p.Quality.ToString(CultureInfo.InvariantCulture)}:new[]{"-b:v",p.Bitrate+"k"});
     if(p.RateMode==RateMode.CBR)a.AddRange(new[]{"-minrate",p.Bitrate+"k","-maxrate",p.Bitrate+"k","-bufsize",(p.Bitrate*2)+"k"});
     if(p.Threads>0)a.AddRange(new[]{"-threads",p.Threads.ToString(CultureInfo.InvariantCulture)});
@@ -91,7 +91,7 @@ namespace TsEncodeFlow {
   public static async Task Mux(Job j,Settings s,AdvancedRun run,string folder,string output,CancellationToken token,Action<string> log) {
    string list=Path.Combine(folder,"video.ffconcat");var text=new StringBuilder("ffconcat version 1.0\n");foreach(var part in run.Parts)text.Append("file '").Append(Path.GetFileName(part.File)).Append("'\nduration ").Append(Commercials.N(part.End-part.Start)).Append('\n');File.WriteAllText(list,text.ToString(),new UTF8Encoding(false));
    var args=new List<string>{"-hide_banner","-nostdin","-y","-f","concat","-safe","1","-i",list};var tracks=AdvancedOptions.Audio(j.Preset,j.Metadata);var keep=Commercials.Keep(j);var af=new StringBuilder();
-   if(keep==null&&j.Preset.CopyAudio)args.AddRange(new[]{"-ss",Commercials.N(SourceStart(j.Metadata,0))});args.AddRange(MetadataReader.ProbeInput());args.AddRange(new[]{"-i",j.Input,"-map","0:v:0","-c:v","copy"});
+   if(keep==null&&j.Preset.CopyAudio)args.AddRange(new[]{"-ss",Commercials.N(SourceStart(j.Metadata,0))});args.AddRange(MetadataReader.ProbeInput());args.AddRange(new[]{"-i",j.MediaInput,"-map","0:v:0","-c:v","copy"});
    for(int i=0;i<tracks.Count;i++) {
     var track=tracks[i];string spec=track.Pid>0?"1:i:0x"+track.Pid.ToString("x",CultureInfo.InvariantCulture):"1:"+track.Index;if(keep==null&&j.Preset.CopyAudio)args.AddRange(new[]{"-map",spec});else {var ranges=keep??new List<TimeRange>{new(){Start=0,End=j.Metadata.Duration}};var m=Store.Clone(j.Metadata);m.AudioIndex=track.Index;m.AudioStart=track.Start;string f=Commercials.AudioFilter(ranges,m).Replace("[0:"+track.Index+"]","["+spec+"]");foreach(string label in new[]{"ai","a"})for(int k=ranges.Count-1;k>=0;k--)f=f.Replace("["+label+k+"]","[t"+i+label+k+"]");f=f.Replace("[aout]","[ao"+i+"]");if(af.Length>0)af.Append(';');af.Append(f);args.AddRange(new[]{"-map","[ao"+i+"]"});}
     args.AddRange(new[]{"-metadata:s:a:"+i,"language="+track.Language,"-metadata:s:a:"+i,"title="+track.Title,"-disposition:a:"+i,(track.Default?"default":"0")+(track.Commentary?"+comment":"")});

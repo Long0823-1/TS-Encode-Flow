@@ -9,6 +9,7 @@ namespace TsEncodeFlow {
  public enum DitherMode { None, Bayer, ErrorDiffusion }
  public sealed class AudioTrack {
   public int Index,Channels,Pid;
+  public int SourceIndex=-1;
   public string Codec="",Language="und",Title="",Layout="";
   public bool Default,Commentary;
   public double Start;
@@ -50,8 +51,8 @@ namespace TsEncodeFlow {
    var all=m.AudioTracks??new();if(all.Count==0&&m.AudioIndex>=0)all=new(){new(){Index=m.AudioIndex,Start=m.AudioStart}};
    if(!string.IsNullOrWhiteSpace(p.AudioStreams)) {
     var ids=p.AudioStreams.Split(',').Select(s=>int.TryParse(s.Trim(),out int i)?i:throw new ArgumentException("音声番号はカンマ区切りの整数で指定してください。")).ToList();
-    if(ids.Distinct().Count()!=ids.Count||ids.Any(i=>!all.Any(t=>t.Index==i)))throw new ArgumentException("選択サービスに存在しない、または重複した音声番号です。");
-    return ids.Select(i=>all.First(t=>t.Index==i)).ToList();
+    if(ids.Distinct().Count()!=ids.Count||ids.Any(i=>!all.Any(t=>(t.SourceIndex>=0?t.SourceIndex:t.Index)==i)))throw new ArgumentException("選択サービスに存在しない、または重複した音声番号です。");
+    return ids.Select(i=>all.First(t=>(t.SourceIndex>=0?t.SourceIndex:t.Index)==i)).ToList();
    }return p.AllAudio?all:all.Take(1).ToList();
   }
   public static void Validate(Preset p) {

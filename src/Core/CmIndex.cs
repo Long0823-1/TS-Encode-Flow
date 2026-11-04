@@ -52,11 +52,16 @@ namespace TsEncodeFlow {
    if(!ended||frames.Count!=expectedCount)throw new InvalidDataException("CMインデックスが不完全、または解析映像のフレーム数と一致しません。");
    frames.Sort((a,b)=>a.Time.CompareTo(b.Time));widths=frames.Select(x=>x.Width).ToArray();heights=frames.Select(x=>x.Height).ToArray();return frames.Select(x=>x.Time).ToArray();
   }
-  public static int Align(double[] indexed,double[] decoded) {
+  public static int Align(double[] indexed,double[] decoded,double repairFrameSeconds=0,Action<string> log=null) {
    if(decoded.Length==0||indexed.Length<decoded.Length)throw new InvalidDataException("CM解析と変換のフレーム列が一致しません。");
    int offset=Array.FindIndex(indexed,x=>Math.Abs(x-decoded[0])<.0005);
    if(offset<0||offset+decoded.Length>indexed.Length)throw new InvalidDataException("変換開始フレームをCMインデックス内で特定できません。");
-   for(int i=0;i<decoded.Length;i++)if(!double.IsFinite(decoded[i])||Math.Abs(indexed[offset+i]-decoded[i])>=.0005)throw new InvalidDataException("CM解析と変換の途中でフレーム対応がずれています。再エンコードへ切り替えず停止しました。");
+   int repaired=0;
+   for(int i=0;i<decoded.Length;i++)if(!double.IsFinite(decoded[i])||Math.Abs(indexed[offset+i]-decoded[i])>=.0005) {
+    if(double.IsFinite(decoded[i])&&repairFrameSeconds>0&&Math.Abs(indexed[offset+i]-decoded[i])<=repairFrameSeconds+.0005&&++repaired<=32)continue;
+    throw new InvalidDataException("CM解析と変換の途中でフレーム対応がずれています。再エンコードへ切り替えず停止しました。");
+   }
+   if(repaired>0)log?.Invoke("補正モード：破損境界のCMインデックス時刻差を許容しました（"+repaired+"フレーム、各最大1フレーム）。境界付近の映像・音声・CM位置を確認してください。");
    return offset;
   }
  }

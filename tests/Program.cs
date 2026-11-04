@@ -46,6 +46,8 @@ static partial class Tests {
   }
  }
  [STAThread]static int Main(string[] args) {
+  if(args.Contains("--repair-synthetic")){RepairSynthetic(args).GetAwaiter().GetResult();return 0;}
+  if(args.Contains("--repair-recording")){RepairRecording(args).GetAwaiter().GetResult();return 0;}
   if(args.Contains("--late-timeline-clip")){LateTimelineClip(args).GetAwaiter().GetResult();return 0;}
   if(args.Contains("--slow-frame-probe-fixture")){Console.WriteLine("80000.000000,");Thread.Sleep(10000);return 0;}
   if(args.Contains("--timeline-file")){TimelineFile(args).GetAwaiter().GetResult();return 0;}
@@ -92,6 +94,7 @@ static partial class Tests {
    string autoData=Path.Combine(root,"AutoStartQueue");using(var queue=new QueueManager(autoData)){queue.Paused=true;QueueManager.Submit(autoData,new[]{retryInput});queue.Tick();Check(!queue.Paused&&queue.Jobs.Count==1&&queue.Jobs[0].State==State.Waiting,"explicit queue submission resumes processing while recently modified input waits safely");queue.Paused=true;queue.Tick();Check(queue.Paused,"explicit pause remains in effect until a new request");queue.Cancel(queue.Jobs[0].Id);queue.Retry(queue.Jobs[0].Id);Check(!queue.Paused&&queue.Jobs[0].State==State.Waiting,"retry resumes paused processing automatically");}
    string changeData=Path.Combine(root,"ChangePresetQueue");using(var queue=new QueueManager(changeData)){queue.Paused=true;var job=queue.Enqueue(retryInput);queue.Cancel(job.Id);job.Metadata=new Metadata();job.Commercials=new CmPlan();job.Glyphs.Add(new DrcsGlyph());string outputFolder=job.OutputFolder;var replacementPreset=new Preset {Name="個別設定",Engine=Engine.VCEEncC,Width=640,Height=360};Store.Save(Path.Combine(changeData,"Inbox","change.json"),new QueueManager.Request {Action="change-preset",JobId=job.Id,Profile=new BatchProfile {Preset=replacementPreset}});queue.Tick();Check(job.State==State.Cancelled&&job.Preset.Width==640&&job.Metadata==null&&job.Commercials==null&&job.Glyphs.Count==0&&job.OutputFolder==outputFolder,"cancelled job preset changes through worker inbox, resets analysis and stays stopped");replacementPreset.Width=320;Check(job.Preset.Width==640,"job preset replacement is an independent snapshot");queue.Retry(job.Id);Check(job.State==State.Waiting,"changed job starts only on explicit retry");Reject(()=>queue.ChangePreset(job.Id,new Preset()),"preset change rejects waiting or active jobs");}
    NameConditionTests();
+   RepairUnitTests();
    QueueV061(root);
    AudioSelectionV062();
    CacheLocationTests(root);

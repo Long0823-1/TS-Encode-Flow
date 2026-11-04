@@ -54,6 +54,7 @@ namespace TsEncodeFlow {
   public VideoRange ColorRange {get;set;}=VideoRange.Preserve;
   public DitherMode Dither {get;set;}=DitherMode.ErrorDiffusion;
   public bool DiagnoseSignal {get;set;}=false;
+  public bool RepairTimeline {get;set;}=false;
   [Category("3. フィルタ"),DisplayName("クロップ左")] public int CropLeft {get;set;}=0;
   [Category("3. フィルタ"),DisplayName("クロップ上")] public int CropTop {get;set;}=0;
   [Category("3. フィルタ"),DisplayName("クロップ右")] public int CropRight {get;set;}=0;
@@ -133,6 +134,9 @@ namespace TsEncodeFlow {
  public sealed class Job {
   public List<string> EncodeCacheFolders=new();
   public string CacheCleanupWarning="";
+  [System.Text.Json.Serialization.JsonIgnore] public string WorkingInput="";
+  [System.Text.Json.Serialization.JsonIgnore] public string MediaInput=>string.IsNullOrEmpty(WorkingInput)?Input:WorkingInput;
+  public TimelineRepairReport TimelineRepair;
   public string Id=Guid.NewGuid().ToString("N"),Input,Output="",Fingerprint,Message="",LogFile="",Command="";
   public State State=State.Waiting;
   public double Progress;

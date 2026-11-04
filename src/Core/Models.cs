@@ -121,6 +121,7 @@ namespace TsEncodeFlow {
  public sealed class Metadata {
   public string Title="",Channel="",Description="",Episode="",Source="",OriginalName="";
   public DateTime Start;
+  public int PcrPid=-1;
   public int ServiceId,EventId,NetworkId,TransportId,Width,Height,VideoIndex,AudioIndex=-1,SubtitleIndex=-1,SubtitlePid=-1,VideoPid=-1;
   public string SubtitleCodec="";
   public string SubtitleStatus="";

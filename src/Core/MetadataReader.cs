@@ -43,6 +43,7 @@ namespace TsEncodeFlow {
    var validAudio=DecodableAudio(streams,log);var audio=validAudio.FirstOrDefault();
    var subtitle=streams.FirstOrDefault(s=>Text(s,"codec_type")=="subtitle");
    var m=new Metadata {OriginalName=Path.GetFileNameWithoutExtension(file),Start=File.GetLastWriteTime(file),Width=Int(video,"width"),Height=Int(video,"height"),VideoIndex=Int(video,"index"),AudioIndex=audio==null?-1:Int(audio,"index"),ServiceId=program==null?0:Int(program,"program_id"),Sar=Ratio(Text(video,"sample_aspect_ratio","1:1")),Fps=Ratio(Text(video,"r_frame_rate")),Duration=Number(Text(video,"duration")),Source="ファイル名・更新時刻（番組日時が取得できない場合の代替）"};
+   m.TransportId=Int(video,"ts_id");m.PcrPid=program!=null&&int.TryParse(Text(program,"pcr_pid"),out int pcr)?pcr:-1;
    m.ColorSpace=Text(video,"color_space");m.ColorRange=Text(video,"color_range");m.ColorPrimaries=Text(video,"color_primaries");m.ColorTransfer=Text(video,"color_transfer");m.PixelFormat=Text(video,"pix_fmt");m.FieldOrder=Text(video,"field_order");
    m.AudioTracks=validAudio.Select(x=>{var tags=Obj(x.ContainsKey("tags")?x["tags"]:null);var disposition=Obj(x.ContainsKey("disposition")?x["disposition"]:null);return new AudioTrack {Index=Int(x,"index"),Pid=Pid(x),Channels=Int(x,"channels"),Codec=Text(x,"codec_name"),Language=Text(tags,"language","und"),Title=Text(tags,"title"),Layout=Text(x,"channel_layout"),Default=Int(disposition,"default")!=0,Commentary=Int(disposition,"comment")!=0,Start=Number(Text(x,"start_time"))};}).ToList();
    if(m.Sar<=0||double.IsNaN(m.Sar)||double.IsInfinity(m.Sar))m.Sar=1;
@@ -50,7 +51,15 @@ namespace TsEncodeFlow {
    string videoPid=Text(video,"id");if(videoPid.StartsWith("0x")&&int.TryParse(videoPid.Substring(2),NumberStyles.HexNumber,CultureInfo.InvariantCulture,out int pidValue))m.VideoPid=pidValue;
    if(subtitle!=null){m.SubtitleIndex=Int(subtitle,"index");m.SubtitleCodec=Text(subtitle,"codec_name");string pid=Text(subtitle,"id");try{m.SubtitlePid=pid.StartsWith("0x")?Convert.ToInt32(pid.Substring(2),16):int.Parse(pid);}catch(FormatException){}}
    if(m.Duration<=0)m.Duration=Number(Text(Obj(data.ContainsKey("format")?data["format"]:null),"duration"));
-   if(File.Exists(settings.EpgDll))try {NativeEpg.Fill(file,settings.EpgDll,m,token);log("TS番組情報："+m.Title+" / "+m.Channel);}catch(Exception e){log("TS番組情報を取得できません："+e.Message);}
+   if(File.Exists(settings.EpgDll))try {
+    long middle=-1;
+    bool useSidecar=sidecar!=null&&(sideInfo.ServiceId==0||sideInfo.ServiceId==m.ServiceId)&&!string.IsNullOrWhiteSpace(sideInfo.Title);
+    if(!useSidecar&&m.Duration>2)try {
+     var sample=await Processes.Run(settings.Ffprobe,new[]{"-v","error","-read_intervals",Commercials.N(m.Duration/2)+"%+1","-select_streams",m.VideoIndex.ToString(),"-show_packets","-show_entries","packet=pos","-of","csv=p=0",file},token,null,30);
+     if(sample.ExitCode==0)foreach(string line in sample.Output.Split('\n'))if(long.TryParse(line.Split(',')[0].Trim(),out long position)&&position>=0){middle=position;break;}
+    }catch(Exception e)when(e is not OperationCanceledException){log("録画中央の番組情報取得位置を特定できません："+e.Message);}
+    NativeEpg.Fill(file,settings.EpgDll,m,token,middle,log);log("TS番組情報："+m.Title+" / "+m.Channel);
+   }catch(Exception e)when(e is not OperationCanceledException){log("TS番組情報を取得できません："+e.Message);}
    else log("EpgDataCap3.dllが未指定です。.program.txtがあれば利用します。");
    if(sidecar!=null&&(sideInfo.ServiceId==0||sideInfo.ServiceId==m.ServiceId)){ReadSidecar(sidecar,m);log("録画番組情報："+Path.GetFileName(sidecar));}
    else if(sidecar!=null)log(".program.txtと選択SIDが異なるため、番組名はTS内の情報を利用します。");
@@ -83,6 +92,7 @@ namespace TsEncodeFlow {
   [UnmanagedFunctionPointer(CallingConvention.Winapi)]delegate uint Uninit(uint id);
   [UnmanagedFunctionPointer(CallingConvention.Winapi)]delegate uint Add(uint id,byte[] data,uint size);
   [UnmanagedFunctionPointer(CallingConvention.Winapi)]delegate uint Services(uint id,out uint count,out IntPtr list);
+  [UnmanagedFunctionPointer(CallingConvention.Winapi)]delegate uint Events(uint id,ushort onid,ushort tsid,ushort sid,out uint count,out IntPtr list);
   [UnmanagedFunctionPointer(CallingConvention.Winapi)]delegate uint Event(uint id,ushort onid,ushort tsid,ushort sid,int next,out IntPtr info);
   [StructLayout(LayoutKind.Sequential)]struct Service {public ushort Onid,Tsid,Sid;public IntPtr Ext;}
   [StructLayout(LayoutKind.Sequential)]struct ServiceExt {public byte Type,Partial;public IntPtr Provider,Name,Network,Ts;public byte Remote;}
@@ -90,32 +100,59 @@ namespace TsEncodeFlow {
   [StructLayout(LayoutKind.Sequential)]struct EventInfo {public ushort Id;public byte StartFlag;public SysTime Start;public byte DurationFlag;public uint Duration;public IntPtr Short,Ext,Content,Component,Audio,Group,Relay;public byte FreeCA;}
   [StructLayout(LayoutKind.Sequential)]struct Short {public ushort NameLength;public IntPtr Name;public ushort TextLength;public IntPtr Text;}
   static T Bind<T>(IntPtr module,string name)where T:class {var p=GetProcAddress(module,name);if(p==IntPtr.Zero)throw new InvalidDataException("EDCB DLLにAPIがありません："+name);return Marshal.GetDelegateForFunctionPointer(p,typeof(T))as T;}
-  public static void Fill(string file,string dll,Metadata m,CancellationToken token) {
+  public static void Fill(string file,string dll,Metadata m,CancellationToken token,long middlePosition=-1,Action<string> log=null) {
+   token.ThrowIfCancellationRequested();
    lock(gate) {
+    token.ThrowIfCancellationRequested();
     IntPtr module=LoadLibraryEx(Path.GetFullPath(dll),IntPtr.Zero,0x100|0x1000);if(module==IntPtr.Zero)throw new InvalidDataException("EDCB x64 DLLを読み込めません（"+Marshal.GetLastWin32Error()+"）。");uint id=0;Uninit uninit=null;bool initialized=false;
     try {
      var init=Bind<Init>(module,"InitializeEP");uninit=Bind<Uninit>(module,"UnInitializeEP");var add=Bind<Add>(module,"AddTSPacketEP");var services=Bind<Services>(module,"GetServiceListActualEP");var current=Bind<Event>(module,"GetEpgInfoEP");
+     var listProc=GetProcAddress(module,"GetEpgInfoListEP");var events=listProc==IntPtr.Zero?null:Marshal.GetDelegateForFunctionPointer<Events>(listProc);
      if(init(0,out id)!=1)throw new InvalidDataException("EPG解析の初期化に失敗。");initialized=true;
-     // Up to 64 MiB from the beginning; only PSI/SI packets are handed to the parser.
-     using(var input=File.OpenRead(file)) {
-      byte[] packet=new byte[188];long read=0;while(read<64*1024*1024&&input.Read(packet,0,188)==188) {
+     var clock=new EpgClock(m.PcrPid>=0?m.PcrPid:m.VideoPid);
+     using var input=File.OpenRead(file);
+     void Scan(long position,long limit,bool anchor) {
+      input.Position=Math.Clamp(position,0,input.Length);long read=0;byte[] packet=new byte[188];
+      while(read<limit&&input.Read(packet,0,188)==188) {
        read+=188;if(read%(188*1024)==0)token.ThrowIfCancellationRequested();
-       if(packet[0]!=0x47){input.Position-=187;continue;}int pid=((packet[1]&31)<<8)|packet[2];if(pid<32)add(id,packet,188);
+       if(packet[0]!=0x47){input.Position-=187;continue;}
+       if(anchor)clock.Add(packet);
+       int pid=((packet[1]&31)<<8)|packet[2];if(pid<32)add(id,packet,188);
       }
      }
-     uint count;IntPtr list;if(services(id,out count,out list)!=1||count>1024)return;
+     Scan(0,64*1024*1024,true);
+     uint count;IntPtr list;
+     if(services(id,out count,out list)!=1||count==0) {
+      var fallback=GetProcAddress(module,"GetServiceListEpgDBEP");
+      if(fallback==IntPtr.Zero||Marshal.GetDelegateForFunctionPointer<Services>(fallback)(id,out count,out list)!=1)return;
+     }
+     if(count>10000)return;
+     Service? selected=null;
      for(int i=0;i<count;i++) {
-      var service=(Service)Marshal.PtrToStructure(IntPtr.Add(list,i*Marshal.SizeOf(typeof(Service))),typeof(Service));if(m.ServiceId!=0&&service.Sid!=m.ServiceId)continue;
-      m.NetworkId=service.Onid;m.TransportId=service.Tsid;m.ServiceId=service.Sid;
-      if(service.Ext!=IntPtr.Zero){var ext=(ServiceExt)Marshal.PtrToStructure(service.Ext,typeof(ServiceExt));m.Channel=Marshal.PtrToStringUni(ext.Name)??"";}
-      IntPtr ptr;if(current(id,service.Onid,service.Tsid,service.Sid,0,out ptr)==1&&ptr!=IntPtr.Zero) {
-       var ev=(EventInfo)Marshal.PtrToStructure(ptr,typeof(EventInfo));m.EventId=ev.Id;
-       if(ev.StartFlag!=0)try{m.Start=new DateTime(ev.Start.Year,ev.Start.Month,ev.Start.Day,ev.Start.Hour,ev.Start.Minute,ev.Start.Second);}catch(ArgumentOutOfRangeException){}
-       if(ev.Short!=IntPtr.Zero){var s=(Short)Marshal.PtrToStructure(ev.Short,typeof(Short));m.Title=Marshal.PtrToStringUni(s.Name)??"";m.Description=Marshal.PtrToStringUni(s.Text)??"";}
-       m.Source="TS内のEIT/SDT（EpgDataCap3）";
-      }
-      break;
+      var service=Marshal.PtrToStructure<Service>(IntPtr.Add(list,i*Marshal.SizeOf<Service>()));if(m.ServiceId!=0&&service.Sid!=m.ServiceId||m.TransportId!=0&&service.Tsid!=m.TransportId)continue;
+      selected=service;m.NetworkId=service.Onid;m.TransportId=service.Tsid;m.ServiceId=service.Sid;
+      if(service.Ext!=IntPtr.Zero){var ext=Marshal.PtrToStructure<ServiceExt>(service.Ext);m.Channel=Marshal.PtrToStringUni(ext.Name)??"";}break;
      }
+     if(!selected.HasValue)return;var target=selected.Value;var candidates=new List<EpgCandidate>();
+     EpgCandidate Copy(IntPtr pointer) {
+      if(pointer==IntPtr.Zero)return null;var ev=Marshal.PtrToStructure<EventInfo>(pointer);var candidate=new EpgCandidate {EventId=ev.Id,Duration=ev.DurationFlag!=0?ev.Duration:0};
+      if(ev.StartFlag!=0)try{candidate.Start=new DateTime(ev.Start.Year,ev.Start.Month,ev.Start.Day,ev.Start.Hour,ev.Start.Minute,ev.Start.Second);}catch(ArgumentOutOfRangeException){}
+      if(ev.Short!=IntPtr.Zero){var info=Marshal.PtrToStructure<Short>(ev.Short);candidate.Title=Marshal.PtrToStringUni(info.Name)??"";candidate.Description=Marshal.PtrToStringUni(info.Text)??"";}
+      if(!string.IsNullOrWhiteSpace(candidate.Title))candidates.Add(candidate);return candidate;
+     }
+     EpgCandidate Collect() {
+      if(events!=null&&events(id,target.Onid,target.Tsid,target.Sid,out uint size,out IntPtr data)==1&&size<=100000)for(int i=0;i<size;i++)Copy(IntPtr.Add(data,i*Marshal.SizeOf<EventInfo>()));
+      EpgCandidate present=null;
+      for(int next=0;next<=1;next++)if(current(id,target.Onid,target.Tsid,target.Sid,next,out IntPtr ptr)==1){var item=Copy(ptr);if(next==0)present=item;}
+      return present;
+     }
+     var beginning=Collect();EpgCandidate middle=null;
+     if(middlePosition>=0&&middlePosition<input.Length){Scan(middlePosition,16*1024*1024,false);middle=Collect();}
+     var chosen=EpgSelection.Choose(candidates,clock.RecordingStart,m.Duration,middle,beginning);
+     if(chosen==null)return;
+     m.Title=chosen.Title;m.Description=chosen.Description;m.EventId=chosen.EventId;if(chosen.Start!=default)m.Start=chosen.Start;
+     m.Source=EpgSelection.Overlap(chosen,clock.RecordingStart,m.Duration)>0?"TS内のEIT/SDT（放送時計・録画範囲との重複時間で番組を選択）":!string.IsNullOrWhiteSpace(middle?.Title)?"TS内のEIT/SDT（重複時間を判定できないため録画中央の番組を選択）":"TS内のEIT/SDT（重複時間・録画中央を判定できないため冒頭の番組へフォールバック）";
+     log?.Invoke("番組情報の選択："+m.Title+" / "+m.Source+(clock.RecordingStart.HasValue?" / 録画先頭の放送時刻 "+clock.RecordingStart.Value.ToString("yyyy/MM/dd HH:mm:ss"):""));
     }finally{if(initialized)uninit(id);FreeLibrary(module);}
    }
   }

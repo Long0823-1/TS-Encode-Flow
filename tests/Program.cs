@@ -46,6 +46,10 @@ static partial class Tests {
   }
  }
  [STAThread]static int Main(string[] args) {
+  if(args.Contains("--late-timeline-clip")){LateTimelineClip(args).GetAwaiter().GetResult();return 0;}
+  if(args.Contains("--slow-frame-probe-fixture")){Console.WriteLine("80000.000000,");Thread.Sleep(10000);return 0;}
+  if(args.Contains("--timeline-file")){TimelineFile(args).GetAwaiter().GetResult();return 0;}
+  if(args.Contains("--large-frame-probe-fixture")){using var output=new StreamWriter(Console.OpenStandardOutput(),new UTF8Encoding(false),65536);for(int i=0;i<600000;i++)output.WriteLine((80000+i/30d).ToString("F6",System.Globalization.CultureInfo.InvariantCulture)+",side_data");return 0;}
   if(args.Contains("--new-error-job")){RealV062(args).GetAwaiter().GetResult();return 0;}
   if(args.Contains("--anime-file")||args.Contains("--failed-job")){RealV061(args).GetAwaiter().GetResult();return 0;}
   if(args.Contains("--quality-smoke")){QualitySmoke(args).GetAwaiter().GetResult();return 0;}

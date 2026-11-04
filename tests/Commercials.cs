@@ -9,6 +9,12 @@ using TsEncodeFlow;
 
 static partial class Tests {
  static async Task CmTests(string root) {
+  string streamed=Path.Combine(root,"large-frame-probe.csv");string executable=Environment.ProcessPath;var probeArgs=new List<string>();
+  if(Path.GetFileNameWithoutExtension(executable).Equals("dotnet",StringComparison.OrdinalIgnoreCase))probeArgs.Add(typeof(Tests).Assembly.Location);probeArgs.Add("--large-frame-probe-fixture");
+  var streamedProbe=await Processes.RunToFile(executable,probeArgs,streamed,CancellationToken.None,timeoutSeconds:60);
+  var streamedTimes=CmAnalysis.ReadFrameTimes(streamed,80000);
+  Check(streamedProbe.ExitCode==0&&new FileInfo(streamed).Length>8*1024*1024&&streamedTimes.Length==600000&&Math.Abs(streamedTimes[^1]-599999/30d)<.00001,"long recording frame probe streams beyond 8 MiB without truncation or losing the final frame");
+  using(var cancelProbe=new CancellationTokenSource(300)){bool stopped=false;probeArgs[^1]="--slow-frame-probe-fixture";try{await Processes.RunToFile(executable,probeArgs,Path.Combine(root,"cancelled-probe.csv"),cancelProbe.Token);}catch(OperationCanceledException){stopped=true;}Check(stopped,"streamed frame probe cancellation terminates the child and closes the cache file");}
   await StationLogoTests(root);
   var fallbackPreset=new Preset {CmFallbackWithoutLogo=true};var fallbackLog=new List<string>();
   Check(await CmLogoFallback.UseLogo(fallbackPreset,true,()=>Task.FromResult(true),CancellationToken.None,fallbackLog.Add),"logo success keeps logo analysis even with fallback enabled");
@@ -52,6 +58,9 @@ static partial class Tests {
   Check(rejected&&job.Commercials==null,"retired CM backend cannot run or silently approve content");
   CmAnalysis.ValidateTimeline(Enumerable.Range(0,600).Select(i=>i/30d).ToArray(),600,m);
   bool badTimeline=false;try{CmAnalysis.ValidateTimeline(new[]{0d,1d},2,m);}catch(InvalidDataException){badTimeline=true;}Check(badTimeline,"changed CM frame timeline stops automatic cut");
+  var brokenTimes=Enumerable.Range(0,300).Select(i=>i/30d+(i>=120?383:0)+(i>=200?1089:0)).ToArray();var brokenMetadata=new Metadata {Fps=30,Duration=1482,VideoStart=123};string gapMessage="";
+  try{CmAnalysis.ValidateTimeline(brokenTimes,brokenTimes.Length,brokenMetadata);}catch(InvalidDataException e){gapMessage=e.Message;}
+  Check(gapMessage.Contains("2か所")&&gapMessage.Contains("1472.000秒")&&gapMessage.Contains("最大の飛び")&&brokenMetadata.VideoStart==123,"real discontinuities report gap locations and total without changing source timing or enabling unsafe CM cuts");
   bool traversal=false;try{ToolInstaller.SafeEntry(root,"../escape.exe");}catch(InvalidDataException){traversal=true;}Check(traversal,"download archive traversal rejected");
 
  }

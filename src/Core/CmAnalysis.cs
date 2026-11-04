@@ -25,15 +25,17 @@ namespace TsEncodeFlow {
    job.Message="元TSのフレーム時刻を確認中";changed();
    string cache=Path.Combine(Commercials.Folder(job,data),"frame-times.csv"),identity=cache+".identity";
    string identityValue=Store.Fingerprint(job.Input)+"|"+job.Metadata.VideoIndex;
-   string frameIdentity=identityValue+"|"+Store.Fingerprint(settings.Ffprobe);
-   string frameText;
-   if(File.Exists(cache)&&File.Exists(identity)&&File.ReadAllText(identity)==frameIdentity)frameText=File.ReadAllText(cache);
-   else {
-    var frames=await Processes.Run(settings.Ffprobe,new[]{"-v","error","-threads","4","-select_streams",job.Metadata.VideoIndex.ToString(),"-show_frames","-show_entries","frame=best_effort_timestamp_time","-of","csv=p=0",job.Input},token);
-    if(frames.ExitCode!=0)throw new InvalidDataException("元TSの時間軸を取得できません。");frameText=frames.Output;File.WriteAllText(cache,frameText);File.WriteAllText(identity,frameIdentity);
+   string frameIdentity=identityValue+"|"+Store.Fingerprint(settings.Ffprobe)+"|streamed-frames-v2";
+   if(!File.Exists(cache)||!File.Exists(identity)||File.ReadAllText(identity)!=frameIdentity) {
+    string pending=cache+"."+Guid.NewGuid().ToString("N")+".tmp";
+    try {
+     var frames=await Processes.RunToFile(settings.Ffprobe,new[]{"-v","error","-threads","4","-select_streams",job.Metadata.VideoIndex.ToString(),"-show_frames","-show_entries","frame=best_effort_timestamp_time","-of","csv=p=0",job.Input},pending,token);
+     if(frames.ExitCode!=0)throw new InvalidDataException("元TSの時間軸を取得できません："+Converter.Tail(frames.Error));
+     token.ThrowIfCancellationRequested();File.Move(pending,cache,true);File.WriteAllText(identity,frameIdentity);
+    }finally{if(File.Exists(pending))File.Delete(pending);}
    }
    double headerVideoStart=job.Metadata.VideoStart;
-   var times=frameText.Split('\n').Select(line=>line.Split(',')[0].Trim()).Where(x=>double.TryParse(x,NumberStyles.Float,CultureInfo.InvariantCulture,out _)).Select(x=>double.Parse(x,CultureInfo.InvariantCulture)-job.Metadata.VideoStart).ToArray();
+   var times=ReadFrameTimes(cache,job.Metadata.VideoStart);
    bool protectTail=times.Length>1&&Math.Abs(times[^1]-times[^2]-1/job.Metadata.Fps)>.001;
    ValidateTimeline(times,times.Length,job.Metadata);
    if(job.Metadata.AudioIndex<0)throw new InvalidDataException("無音検出に必要な音声ストリームがありません。");
@@ -123,9 +125,21 @@ namespace TsEncodeFlow {
    return plan;
   }
   public static void ValidateTimeline(double[] times,int count,Metadata m) {
-   if(!double.IsFinite(m.Fps)||m.Fps<=0)throw new InvalidDataException("入力FPSが不正です。");double step=1/m.Fps;if(count<1||times.Length!=count||!double.IsFinite(times[0])||times[0]<-.001||times[0]>2||Math.Abs(times[^1]+step-m.Duration)>step*2)throw new InvalidDataException($"元TSと解析映像のフレーム数・長さが一致しません（{times.Length}/{count}フレーム、先頭{(times.Length>0?times[0]:double.NaN):F3}秒、末尾{(times.Length>0?times[^1]+step:0):F3}/{m.Duration:F3}秒）。自動適用を停止しました。");
-   for(int i=1;i<times.Length;i++)if(!double.IsFinite(times[i])||(Math.Abs(times[i]-times[i-1]-step)>.001&&!(i==times.Length-1&&times[i]-times[i-1]>=step&&times[i]-times[i-1]<=.5)))throw new InvalidDataException("VFR・RFF・ドロップ等で入力の時間軸が一定ではありません。自動適用せず、タイムリストで手動指定してください。");
+   if(!double.IsFinite(m.Fps)||m.Fps<=0)throw new InvalidDataException("入力FPSが不正です。");double step=1/m.Fps;
+   if(count<1||times.Length!=count||!double.IsFinite(times[0])||times[0]<-.001||times[0]>2)throw new InvalidDataException("入力TSのフレーム時刻を正しく読み取れません。自動CM適用を停止しました。");
+   var gaps=new List<(int Index,double Delta)>();
+   for(int i=1;i<times.Length;i++) {
+    if(!double.IsFinite(times[i])||times[i]<=times[i-1])throw new InvalidDataException("入力TSのフレーム時刻が重複または逆行しています。自動CM適用を停止しました。");
+    double delta=times[i]-times[i-1];
+    if(Math.Abs(delta-step)>.001&&!(i==times.Length-1&&delta>=step&&delta<=.5))gaps.Add((i,delta));
+   }
+   if(gaps.Count>0) {
+    var largest=gaps.OrderByDescending(x=>x.Delta).First();double missing=gaps.Sum(x=>Math.Max(0,x.Delta-step));
+    throw new InvalidDataException($"入力TSの時間軸が不連続です（{gaps.Count}か所、時刻差の合計{missing:F3}秒）。最大の飛び：{Commercials.Time(times[largest.Index-1]-times[0])} → {Commercials.Time(times[largest.Index]-times[0])}。録画の欠落・ドロップやVFR/RFFを確認してください。CM位置と音声のずれを防ぐため、自動適用を停止しました。");
+   }
+   if(!double.IsFinite(m.Duration)||Math.Abs(times[^1]+step-m.Duration)>step*2)throw new InvalidDataException($"入力TSのフレーム時刻と録画時間が一致しません（{times.Length}フレーム、先頭{times[0]:F3}秒、末尾{times[^1]+step:F3}/{m.Duration:F3}秒）。自動CM適用を停止しました。");
    m.VideoStart+=times[0];m.Duration=Math.Round((times[^1]-times[0]+step)*m.Fps)/m.Fps;
   }
+  public static double[] ReadFrameTimes(string file,double start)=>File.ReadLines(file).Select(line=>line.Split(',')[0].Trim()).Where(x=>double.TryParse(x,NumberStyles.Float,CultureInfo.InvariantCulture,out _)).Select(x=>double.Parse(x,CultureInfo.InvariantCulture)-start).ToArray();
  }
 }

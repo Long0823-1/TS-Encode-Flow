@@ -10,6 +10,25 @@ using System.Threading.Tasks;
 namespace TsEncodeFlow {
  public sealed class ProcessResult {public int ExitCode;public string Output,Error;}
  public static class Processes {
+  // Structured probes can exceed the bounded interactive log buffer. Stream
+  // their stdout directly to disk rather than returning a silently cut prefix.
+  public static async Task<ProcessResult> RunToFile(string exe,IEnumerable<string> args,string outputFile,CancellationToken cancellation,Action<string> log=null,int timeoutSeconds=0) {
+   if(!File.Exists(exe))throw new FileNotFoundException("ツールが見つかりません。",exe);
+   using var output=new FileStream(outputFile,FileMode.CreateNew,FileAccess.Write,FileShare.None,65536,true);
+   using var p=new Process {StartInfo=new ProcessStartInfo(exe,string.Join(" ",System.Linq.Enumerable.Select(args,Quote))) {UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true,StandardErrorEncoding=Encoding.UTF8,WorkingDirectory=Path.GetDirectoryName(exe)}};
+   using var job=new ChildJob();using var timeout=new CancellationTokenSource();using var linked=CancellationTokenSource.CreateLinkedTokenSource(cancellation,timeout.Token);
+   if(timeoutSeconds>0)timeout.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
+   var error=new StringBuilder();object sync=new object();
+   p.ErrorDataReceived+=(s,e)=>{if(e.Data==null)return;lock(sync){if(error.Length<2*1024*1024)error.AppendLine(e.Data);log?.Invoke(e.Data);}};
+   p.Start();job.Assign(p);p.BeginErrorReadLine();
+   using var cancelled=linked.Token.Register(()=>{job.Kill();try{if(!p.HasExited)p.Kill();}catch(InvalidOperationException){}});
+   var ended=Task.Run(()=>p.WaitForExit());
+   try{await p.StandardOutput.BaseStream.CopyToAsync(output,linked.Token);await ended;}
+   catch{job.Kill();try{await ended;}catch{}cancellation.ThrowIfCancellationRequested();if(timeout.IsCancellationRequested)throw new TimeoutException(Path.GetFileName(exe)+"がタイムアウトしました。");throw;}
+   cancellation.ThrowIfCancellationRequested();if(timeout.IsCancellationRequested)throw new TimeoutException(Path.GetFileName(exe)+"がタイムアウトしました。");
+   await output.FlushAsync(cancellation);
+   return new ProcessResult {ExitCode=p.ExitCode,Output="",Error=error.ToString()};
+  }
   public static string Quote(string value) {
    if(value.IndexOf('\0')>=0)throw new ArgumentException("NULは使用できません。");
    var b=new StringBuilder("\"");int slash=0;

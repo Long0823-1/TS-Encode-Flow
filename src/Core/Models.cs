@@ -62,7 +62,7 @@ namespace TsEncodeFlow {
   [Category("3. フィルタ"),DisplayName("ノイズ除去"),Description("CPU: hqdn3d、GPU: VPP KNN。")]
   public bool Denoise {get;set;}=false;
   [Category("3. フィルタ"),DisplayName("シャープ化")] public bool Sharpen {get;set;}=false;
-  [Category("3. フィルタ"),DisplayName("透過ロゴを消す"),Description("登録済み局ロゴ（LGD）を使い、AviSynth＋DelogoHDで透過ロゴを逆算で除去します。CM処理（チャプター・カット）・FPS指定・詳細パイプラインとの併用は未対応です。有効時は音声をAACで再エンコードします。")]
+  [Category("3. フィルタ"),DisplayName("透過ロゴを消す"),Description("登録済み局ロゴ（LGD）を使い、AviSynth＋DelogoHDで透過ロゴを逆算で除去します。logoframeで検出した表示区間とフェードに追随します。中間映像（可逆）を先に作るため容量と時間が追加で必要です。")]
   public bool RemoveLogo {get;set;}=false;
   public bool KeepSubtitles {get;set;}=true;
   public CmMode CmMode {get;set;}=CmMode.Off;
@@ -140,6 +140,7 @@ namespace TsEncodeFlow {
   public List<string> EncodeCacheFolders=new();
   public string CacheCleanupWarning="";
   [System.Text.Json.Serialization.JsonIgnore] public string WorkingInput="";
+  [System.Text.Json.Serialization.JsonIgnore] public string DelogoInput="";
   [System.Text.Json.Serialization.JsonIgnore] public string MediaInput=>string.IsNullOrEmpty(WorkingInput)?Input:WorkingInput;
   public TimelineRepairReport TimelineRepair;
   public string Id=Guid.NewGuid().ToString("N"),Input,Output="",Fingerprint,Message="",LogFile="",Command="";

@@ -12,7 +12,7 @@ namespace TsEncodeFlow {
  public static class AdvancedEncoder {
   public static double SourceStart(Metadata m,double videoSeconds)=>Math.Max(0,videoSeconds+m.VideoStart-m.FormatStart);
   public static string Hash(string file){using var f=File.OpenRead(file);return Convert.ToHexString(SHA256.HashData(f));}
-  public static string Key(Job j,Settings s)=>Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes("advanced-1|"+Store.Fingerprint(j.MediaInput)+"|"+Store.Json.Serialize(j.Preset)+"|"+Store.Json.Serialize(Commercials.Keep(j))+"|"+Tool(s.Ffmpeg)+"|"+Tool(s.Ffprobe)+"|"+Tool(j.Preset.Engine==Engine.CPU?s.Ffmpeg:j.Preset.Engine==Engine.NVEncC?s.Nvenc:j.Preset.Engine==Engine.VCEEncC?s.Vceenc:s.Qsvenc)+"|"+Hash(string.IsNullOrEmpty(typeof(AdvancedEncoder).Assembly.Location)?Environment.ProcessPath:typeof(AdvancedEncoder).Assembly.Location))));
+  public static string Key(Job j,Settings s)=>Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes("advanced-1|"+Store.Fingerprint(j.MediaInput)+"|"+(string.IsNullOrEmpty(j.DelogoInput)?"none":Store.Fingerprint(j.DelogoInput))+"|"+Store.Json.Serialize(j.Preset)+"|"+Store.Json.Serialize(Commercials.Keep(j))+"|"+Tool(s.Ffmpeg)+"|"+Tool(s.Ffprobe)+"|"+Tool(j.Preset.Engine==Engine.CPU?s.Ffmpeg:j.Preset.Engine==Engine.NVEncC?s.Nvenc:j.Preset.Engine==Engine.VCEEncC?s.Vceenc:s.Qsvenc)+"|"+Hash(string.IsNullOrEmpty(typeof(AdvancedEncoder).Assembly.Location)?Environment.ProcessPath:typeof(AdvancedEncoder).Assembly.Location))));
   static string Tool(string path)=>File.Exists(path)?Store.Fingerprint(path)+"|"+Hash(path):path;
   public static List<EncodePart> Parts(Job j) {
    var result=new List<EncodePart>();double cursor=0;var ranges=Commercials.Keep(j)??new(){new(){Start=0,End=j.Metadata.Duration}};
@@ -28,7 +28,12 @@ namespace TsEncodeFlow {
    string mode=evidence.Film?"film":!interlaced&&(j.Metadata.FieldOrder=="progressive"||frames>0&&(double)evidence.DetectedProgressive/frames>0.85)?"progressive":"video";
    log("混在FPS："+Commercials.N(part.Start)+"–"+Commercials.N(part.End)+"秒 / "+mode+" / 3:2="+evidence.Cadence.ToString("P1",CultureInfo.InvariantCulture));return mode;
   }
-  static List<string> Input(Job j,EncodePart part)=>new(){"-hide_banner","-nostdin","-y","-ss",Commercials.N(SourceStart(j.Metadata,part.Start)),"-i",j.MediaInput,"-t",Commercials.N(part.End-part.Start),"-map","0:"+j.Metadata.VideoIndex,"-an","-sn","-dn"};
+  static List<string> Input(Job j,EncodePart part) {
+   // With a delogo intermediate the video source is the erased FFV1 file: video is stream 0
+   // and its timeline starts at the first frame, so part times seek directly.
+   bool delogo=!string.IsNullOrEmpty(j.DelogoInput);
+   return new(){"-hide_banner","-nostdin","-y","-ss",Commercials.N(delogo?Math.Max(0,part.Start):SourceStart(j.Metadata,part.Start)),"-i",delogo?j.DelogoInput:j.MediaInput,"-t",Commercials.N(part.End-part.Start),"-map","0:"+(delogo?0:j.Metadata.VideoIndex),"-an","-sn","-dn"};
+  }
   public static async Task EncodeVideo(Job j,Settings s,EncodePart part,string output,CancellationToken token,Action<string> log) {
    string filters=AdvancedFilters.Timeline(j.Preset,j.Metadata,part.Mode);var p=Store.Clone(j.Preset);p.Container=Container.mkv;p.ExtraArgs="";
    if(p.Engine==Engine.CPU) {

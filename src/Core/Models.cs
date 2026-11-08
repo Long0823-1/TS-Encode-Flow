@@ -62,6 +62,8 @@ namespace TsEncodeFlow {
   [Category("3. フィルタ"),DisplayName("ノイズ除去"),Description("CPU: hqdn3d、GPU: VPP KNN。")]
   public bool Denoise {get;set;}=false;
   [Category("3. フィルタ"),DisplayName("シャープ化")] public bool Sharpen {get;set;}=false;
+  [Category("3. フィルタ"),DisplayName("透過ロゴを消す"),Description("登録済み局ロゴ（LGD）を使い、AviSynth＋DelogoHDで透過ロゴを逆算で除去します。CM処理（チャプター・カット）・FPS指定・詳細パイプラインとの併用は未対応です。有効時は音声をAACで再エンコードします。")]
+  public bool RemoveLogo {get;set;}=false;
   public bool KeepSubtitles {get;set;}=true;
   public CmMode CmMode {get;set;}=CmMode.Off;
   public CmSource CmSource {get;set;}=CmSource.Sidecar;
@@ -103,6 +105,8 @@ namespace TsEncodeFlow {
   public string ChapterExe {get;set;}="";
   public string LogoFrame {get;set;}="";
   public string CmLogo {get;set;}="";
+  public string DelogoPlugin {get;set;}="";
+  public string Avs2PipeMod {get;set;}="";
   public string JoinLogoScript {get;set;}="";
   [Browsable(false)] public string CaptionTool {get;set;}="";
   [Browsable(false)] public List<Preset> Presets {get;set;}=PresetCatalog.Create();
@@ -177,6 +181,7 @@ namespace TsEncodeFlow {
    if(!File.Exists(s.Nvenc))s.Nvenc=FindTool("NVEncC64.exe","NVEncC.exe");if(!File.Exists(s.Vceenc))s.Vceenc=FindTool("VCEEncC64.exe","VCEEncC.exe");if(!File.Exists(s.Qsvenc))s.Qsvenc=FindTool("QSVEncC64.exe","QSVEncC.exe");
    if(!File.Exists(s.EpgDll))s.EpgDll=FindTool("EpgDataCap3.dll");
    if(!File.Exists(s.CaptionTool))s.CaptionTool=FindTool("CaptionProbe.exe");
+   if(!File.Exists(s.DelogoPlugin))s.DelogoPlugin=FindTool("DelogoHD.dll");if(!File.Exists(s.Avs2PipeMod))s.Avs2PipeMod=FindTool("avs2pipemod64.exe","avs2pipemod.exe");
   }
   public static string Fingerprint(string file) {var f=new FileInfo(file);return f.FullName.ToUpperInvariant()+"|"+f.Length+"|"+f.LastWriteTimeUtc.Ticks;}
  }

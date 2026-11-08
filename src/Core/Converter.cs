@@ -14,7 +14,7 @@ namespace TsEncodeFlow {
    try{using(var f=File.Open(file,FileMode.Open,FileAccess.Read,FileShare.Read)){return f.Length>0;}}catch(IOException){return false;}catch(UnauthorizedAccessException){return false;}
   }
   public static async Task Convert(Job j,Settings settings,CancellationToken token,Action<string> log,Action changed) {
-   j.WorkingInput="";j.TimelineRepair=null;Commands.Validate(j.Preset);if(!WritableRecording(j.Input))throw new IOException("入力が録画中または読み取りできません。");
+   j.WorkingInput="";j.TimelineRepair=null;Commands.Validate(j.Preset);Delogo.ValidateCombination(j.Preset);if(!WritableRecording(j.Input))throw new IOException("入力が録画中または読み取りできません。");
    string fingerprint=Store.Fingerprint(j.Input);
    j.Metadata=await MetadataReader.Read(j.Input,settings,j.Preset.ServiceId,token,log);if(Store.Fingerprint(j.Input)!=fingerprint)throw new IOException("入力解析中にTSが変更されました。再試行してください。");j.Fingerprint=fingerprint;changed();
    j.Message="字幕・DRCSを確認中";changed();
@@ -28,6 +28,11 @@ namespace TsEncodeFlow {
    var keep=Commercials.Keep(j);double expectedDuration=Commercials.Duration(j);
    j.Message="逆テレシネを判定中";changed();j.Telecine=await Telecine.Analyze(j,settings,token,log);changed();
    string subtitle=await Subtitles.Prepare(j,settings,dataFolder,token,log,changed);
+   string delogoInput=null;
+   if(j.Preset.RemoveLogo) {
+    if(j.Metadata.InverseTelecine)throw new InvalidDataException("透過ロゴ消しは自動逆テレシネとの併用に未対応です。");
+    delogoInput=await Delogo.Prepare(j,settings,dataFolder,token,log,changed);
+   }
    string cutFilter=null;
    if(keep!=null) {
     string folder=Commercials.Folder(j,dataFolder);Directory.CreateDirectory(folder);
@@ -38,7 +43,7 @@ namespace TsEncodeFlow {
    string desired=Path.GetFullPath(Path.Combine(root,relative));if(!desired.StartsWith(root.TrimEnd('\\')+"\\",StringComparison.OrdinalIgnoreCase))throw new ArgumentException("出力先が保存フォルダーの範囲外です。");
    if(desired.Length>200)throw new ArgumentException("出力パスが長すぎます。マクロや保存先を短くしてください。");
    Directory.CreateDirectory(Path.GetDirectoryName(desired));
-   string final=null,reserve=null,temp=null,selected=null,muxed=null,cutAudio=null,audioFilter=null,audioMux=null;FileStream reservation=null;
+   string final=null,reserve=null,temp=null,selected=null,muxed=null,cutAudio=null,audioFilter=null,audioMux=null,delogoAudio=null,delogoAudioFilter=null;FileStream reservation=null;
    try {
     for(int n=0;n<10000;n++) {
      string name=n==0?desired:Path.Combine(Path.GetDirectoryName(desired),Path.GetFileNameWithoutExtension(desired)+" ("+n+")"+Path.GetExtension(desired));
@@ -56,9 +61,11 @@ namespace TsEncodeFlow {
     Command command=null;
     bool advanced=AdvancedOptions.Enabled(p);
     if(advanced){j.Message="詳細パイプラインを開始中";changed();await AdvancedEncoder.Run(j,s,dataFolder,temp,token,log,changed);}
-    else if(p.Engine==Engine.CPU)command=Commands.Ffmpeg(s,p,j.Metadata,j.MediaInput,temp,cutFilter:cutFilter);
+    else if(p.Engine==Engine.CPU)command=delogoInput==null?Commands.Ffmpeg(s,p,j.Metadata,j.MediaInput,temp,cutFilter:cutFilter):Commands.Ffmpeg(s,p,Delogo.VideoOnly(j.Metadata),delogoInput,temp);
     else {
      string encoder=p.Engine==Engine.NVEncC?s.Nvenc:p.Engine==Engine.VCEEncC?s.Vceenc:s.Qsvenc;if(!File.Exists(encoder))throw new FileNotFoundException("選択したGPUエンコーダーがありません。設定タブでパスを指定してください。",encoder);
+     if(delogoInput!=null)command=Commands.Hardware(s,p,Delogo.VideoOnly(j.Metadata),delogoInput,temp,false,null);
+     else {
      bool prefiltered=!string.IsNullOrWhiteSpace(p.Fps)||j.Metadata.InverseTelecine;
      selected=Path.Combine(EncodeCache.WorkFolder(dataFolder,s,j),"selected"+(prefiltered?".mkv":".ts"));
      j.Message=prefiltered?"FPS・逆テレシネの可逆前処理中（空き容量が必要）":"対象サービスの映像・音声を分離中";changed();
@@ -66,6 +73,7 @@ namespace TsEncodeFlow {
      log(demux.ToString());var result=await Processes.Run(demux.Exe,demux.Args,token,log);
      if(result.ExitCode!=0)throw new InvalidDataException("前処理失敗：終了コード"+result.ExitCode+"\n"+Tail(result.Error));
      command=Commands.Hardware(s,p,j.Metadata,selected,temp,prefiltered,j.Metadata.InverseTelecine?null:keep);
+     }
     }
     if(!advanced){j.Command=command.ToString();j.Message="変換中："+p.Engine;log(j.Command);changed();
     var encoded=await Processes.Run(command.Exe,command.Args,token,progress);
@@ -78,6 +86,15 @@ namespace TsEncodeFlow {
      if(audio.ExitCode!=0)throw new InvalidDataException("CM音声の処理に失敗しました。");
      var combined=await Processes.Run(s.Ffmpeg,new[]{"-hide_banner","-nostdin","-y","-i",temp,"-i",cutAudio,"-map","0:v:0","-map","1:a:0","-c","copy","-map_metadata","-1","-map_chapters","-1",audioMux},token,log);
      if(combined.ExitCode!=0)throw new InvalidDataException("CM映像と音声の結合に失敗しました。");File.Delete(temp);temp=audioMux;audioMux=null;
+    }
+    if(!advanced&&delogoInput!=null&&j.Metadata.AudioIndex>=0) {
+     j.Message="ロゴ消し済み映像へ音声を結合中";changed();
+     delogoAudio=Path.Combine(Path.GetDirectoryName(final),".delogo-audio-"+j.Id+".m4a");delogoAudioFilter=delogoAudio+".filter";audioMux=Path.Combine(Path.GetDirectoryName(final),".delogo-av-"+j.Id+Path.GetExtension(final));
+     File.WriteAllText(delogoAudioFilter,Commercials.AudioFilter(new List<TimeRange>{new TimeRange {Start=0,End=j.Metadata.Duration}},j.Metadata));
+     var audio=await Processes.Run(s.Ffmpeg,new[]{"-hide_banner","-nostdin","-y","-i",j.MediaInput,"-/filter_complex",delogoAudioFilter,"-map","[aout]","-c:a","aac","-b:a",p.AudioBitrate+"k",delogoAudio},token,log);
+     if(audio.ExitCode!=0)throw new InvalidDataException("ロゴ消し用の音声処理に失敗しました。");
+     var combined=await Processes.Run(s.Ffmpeg,new[]{"-hide_banner","-nostdin","-y","-i",temp,"-i",delogoAudio,"-map","0:v:0","-map","1:a:0","-c","copy","-map_metadata","-1","-map_chapters","-1",audioMux},token,log);
+     if(combined.ExitCode!=0)throw new InvalidDataException("ロゴ消し映像と音声の結合に失敗しました。");File.Delete(temp);temp=audioMux;audioMux=null;
     }
     if(p.EmbedMetadata||subtitle!=null||p.CmMode!=CmMode.Off) {
      j.Message="字幕・番組情報を動画に格納中";changed();muxed=Path.Combine(Path.GetDirectoryName(final),".mux-"+j.Id+Path.GetExtension(final));
@@ -111,7 +128,7 @@ namespace TsEncodeFlow {
     catch(Exception e)when(e is IOException||e is UnauthorizedAccessException||e is ArgumentException){j.CacheCleanupWarning=e.Message;log("完成動画は保存済みですが、キャッシュを削除できません："+e.Message);}
     j.Message=!string.IsNullOrEmpty(j.Metadata.SubtitleWarning)?"完了（字幕の警告あり・元TSを保持）":j.Preset.KeepSubtitles&&subtitle==null?"完了（"+j.Metadata.SubtitleStatus+"・元TSを保持）":"完了（元TSを保持）";if(j.CacheCleanupWarning.Length>0)j.Message+=" キャッシュ削除の警告あり";log(j.Message+"："+final);
    }finally {
-    reservation?.Dispose();foreach(string ownFile in new[]{reserve,temp,selected,muxed,cutAudio,audioFilter,audioMux})if(ownFile!=null&&File.Exists(ownFile))try{File.Delete(ownFile);}catch(IOException){}
+    reservation?.Dispose();foreach(string ownFile in new[]{reserve,temp,selected,muxed,cutAudio,audioFilter,audioMux,delogoAudio,delogoAudioFilter})if(ownFile!=null&&File.Exists(ownFile))try{File.Delete(ownFile);}catch(IOException){}
    }
   }
   public static string Tail(string text)=>text.Length>1800?text.Substring(text.Length-1800):text;

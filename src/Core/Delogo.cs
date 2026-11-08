@@ -55,6 +55,14 @@ namespace TsEncodeFlow {
    b.Append("v.AssumeFPS("+N((int)Math.Round(fps*1000000))+",1000000)\n");
    return b.ToString();
   }
+  // AVS Trim で中間映像を事前にCMカットするか。詳細パイプライン使用時は null:
+  // AdvancedEncoder.Parts は元タイムラインの開始位置で入力をシークするため、
+  // 中間映像は全長のまま渡し、カットは区間分割に任せる。
+  public static List<(int Start,int End)> TrimFrames(Job job) {
+   var keep=Commercials.Keep(job);
+   if(keep==null||AdvancedOptions.Enabled(job.Preset))return null;
+   return FrameRanges(keep,job.Metadata.Fps);
+  }
   // CM保持区間（秒）をフレーム区間へ。区間はCM側でフレーム境界に丸め済み。
   public static List<(int Start,int End)> FrameRanges(IReadOnlyList<TimeRange> keep,double fps) {
    var result=new List<(int,int)>();
@@ -122,12 +130,13 @@ namespace TsEncodeFlow {
    string lsmash=bin==""?"":Path.Combine(bin,"plugins64","LSMASHSource.dll"),avisynth=bin==""?"":Path.Combine(bin,"AviSynth.dll");
    if(lsmash==""||!File.Exists(lsmash)||!File.Exists(avisynth))throw new FileNotFoundException("CM解析用のAviSynth／L-SMASHがありません。ツール設定でCM解析コンポーネントをダウンロードして適用してください。",lsmash);
    string sourceFingerprint=Store.Fingerprint(job.MediaInput);
+   var trimFrames=TrimFrames(job);
    var keepRanges=Commercials.Keep(job);
    string folder=EncodeCache.WorkFolder(data,settings,job);
    string output=Path.Combine(folder,"delogo-video.mkv"),receiptFile=output+".json";
-   string key=sourceFingerprint+"|delogo-v2|"+Store.Fingerprint(logo)+"|"+Store.Fingerprint(plugin)+"|"+Store.Fingerprint(host)+"|"+Store.Fingerprint(lsmash)+"|"+Store.Json.Serialize(keepRanges);
+   string key=sourceFingerprint+"|delogo-v2|"+Store.Fingerprint(logo)+"|"+Store.Fingerprint(plugin)+"|"+Store.Fingerprint(host)+"|"+Store.Fingerprint(lsmash)+"|"+Store.Json.Serialize(trimFrames);
    var receipt=Store.Load(receiptFile,()=>new DelogoReceipt());
-   double expectedDuration=keepRanges!=null?keepRanges.Sum(r=>r.End-r.Start):job.Metadata.Duration;
+   double expectedDuration=trimFrames!=null?keepRanges.Sum(r=>r.End-r.Start):job.Metadata.Duration;
    if(File.Exists(output)&&receipt.Source==key&&receipt.Output==Store.Fingerprint(output)) {
     try{await ValidateIntermediate(settings,output,job.Metadata,expectedDuration,token);log("ロゴ消し済み映像をキャッシュから再利用します。");return output;}catch(InvalidDataException){log("ロゴ消し済み映像のキャッシュが壊れているため作り直します。");}
    }
@@ -169,7 +178,7 @@ namespace TsEncodeFlow {
     segments=await ScanSegments(job,settings,data,scanScript,runtimeLsmash,folder,token,log);
    }
    string script=Path.Combine(folder,"delogo.avs");
-   File.WriteAllText(script,Script(runtimeLsmash,runtimePlugin,privateIndex,nativeVideo,logo,job.Metadata.Fps,segments,FrameRanges(keepRanges,job.Metadata.Fps)),encoding);
+   File.WriteAllText(script,Script(runtimeLsmash,runtimePlugin,privateIndex,nativeVideo,logo,job.Metadata.Fps,segments,trimFrames),encoding);
    string pending=output+".partial.mkv";
    try {
     var producer=new Command {Exe=hostExe,Args=new List<string>{PipeMode(job.Metadata),"-dll="+Path.Combine(runtime,"AviSynth.dll"),script}};

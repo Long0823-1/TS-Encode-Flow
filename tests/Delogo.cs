@@ -22,6 +22,18 @@ static partial class Tests {
   // CM cut scripts trim the kept programme ranges inside AVS.
   string cut=Delogo.Script("a.dll","b.dll","idx.lwi",0,"logo.lgd",30000.0/1001,null,new List<(int,int)>{(0,299),(600,899)});
   Check(cut.Contains("v=v.Trim(0,299)++v.Trim(600,899)"),"delogo script trims CM keep ranges in AVS");
+  // Trim decision: the intermediate is pre-cut only when the plain pipeline consumes it.
+  // The advanced pipeline seeks original-timeline positions, so it must receive the full-length intermediate.
+  var trimMeta=new Metadata {Fps=25,Duration=36};
+  var plainJob=new Job {Metadata=trimMeta,Preset=new Preset {RemoveLogo=true,CmMode=CmMode.Cut},Commercials=Commercials.Build(new[]{new TimeRange {Start=10,End=20}},36,25,"test")};
+  var trim=Delogo.TrimFrames(plainJob);
+  Check(trim!=null&&trim.Count==2&&trim[0]==(0,249)&&trim[1]==(500,899),"delogo pre-trims CM keep ranges for the plain pipeline");
+  var advancedJob=new Job {Metadata=trimMeta,Preset=new Preset {RemoveLogo=true,CmMode=CmMode.Cut,BitDepth=10},Commercials=plainJob.Commercials};
+  Check(Delogo.TrimFrames(advancedJob)==null,"delogo keeps the full-length intermediate for the advanced pipeline");
+  var chaptersJob=new Job {Metadata=trimMeta,Preset=new Preset {RemoveLogo=true,CmMode=CmMode.Chapters},Commercials=plainJob.Commercials};
+  Check(Delogo.TrimFrames(chaptersJob)==null,"delogo does not trim for CM chapters mode");
+  var noCmJob=new Job {Metadata=trimMeta,Preset=new Preset {RemoveLogo=true}};
+  Check(Delogo.TrimFrames(noCmJob)==null,"delogo does not trim without a CM plan");
   // Frame range conversion rounds keep seconds to frame boundaries.
   var frames=Delogo.FrameRanges(new List<TimeRange>{new TimeRange{Start=0,End=10},new TimeRange{Start=20.5,End=30.25}},25);
   Check(frames.Count==2&&frames[0]==(0,249)&&frames[1]==(513,755),"delogo frame ranges convert seconds to inclusive frames");

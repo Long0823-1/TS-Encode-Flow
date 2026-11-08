@@ -30,8 +30,12 @@ The app downloads portable tools from their official release distributions and i
 - join_logo_scp: GPL-2.0; https://github.com/nekopanda/join_logo_scp
 - AviSynth: GPL-2.0-or-later; https://github.com/nekopanda/AviSynthPlus
 - L-SMASH Works source plugin: ISC and the licenses of its linked dependencies, including FFmpeg; https://github.com/VFR-maniac/L-SMASH-Works
+- DelogoHD: GPL-2.0; AviSynth+ / VapourSynth logo-removal plugin derived from MakKi's delogo filter; https://github.com/HomeOfAviSynthPlusEvolution/DelogoHD
+- avs2pipemod: GPL-3.0; small AviSynth script host that streams frames to stdout; https://github.com/chikuzen/avs2pipemod
 
 The CM dependency downloader reads the rigaya/Amatsukaze distribution archive but retains only chapter_exe, join_logo_scp, AviSynth, L-SMASH source plugin, required runtime DLLs, JL scripts and legal/readme documents. It does not install or invoke AmatsukazeCLI, GUI, server, muxers or encoders. CM analysis is orchestrated by this app. No Amatsukaze application source is transplanted.
+
+The optional logo-removal tools are likewise downloaded on demand by the tool setup. DelogoHD is loaded only as an AviSynth plugin inside the separate avs2pipemod host process, together with the AviSynth runtime and L-SMASH source plugin obtained for CM analysis. Neither DelogoHD nor avs2pipemod code is linked into the MAUI/Core/Worker assemblies.
 
 ## Standalone CM logo helper
 

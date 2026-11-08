@@ -62,6 +62,8 @@ namespace TsEncodeFlow {
   [Category("3. フィルタ"),DisplayName("ノイズ除去"),Description("CPU: hqdn3d、GPU: VPP KNN。")]
   public bool Denoise {get;set;}=false;
   [Category("3. フィルタ"),DisplayName("シャープ化")] public bool Sharpen {get;set;}=false;
+  [Category("3. フィルタ"),DisplayName("透過ロゴを消す"),Description("登録済み局ロゴ（LGD）を使い、AviSynth＋DelogoHDで透過ロゴを逆算で除去します。logoframeで検出した表示区間とフェードに追随します。中間映像（可逆）を先に作るため容量と時間が追加で必要です。")]
+  public bool RemoveLogo {get;set;}=false;
   public bool KeepSubtitles {get;set;}=true;
   public CmMode CmMode {get;set;}=CmMode.Off;
   public CmSource CmSource {get;set;}=CmSource.Sidecar;
@@ -103,6 +105,8 @@ namespace TsEncodeFlow {
   public string ChapterExe {get;set;}="";
   public string LogoFrame {get;set;}="";
   public string CmLogo {get;set;}="";
+  public string DelogoPlugin {get;set;}="";
+  public string Avs2PipeMod {get;set;}="";
   public string JoinLogoScript {get;set;}="";
   [Browsable(false)] public string CaptionTool {get;set;}="";
   [Browsable(false)] public List<Preset> Presets {get;set;}=PresetCatalog.Create();
@@ -136,6 +140,7 @@ namespace TsEncodeFlow {
   public List<string> EncodeCacheFolders=new();
   public string CacheCleanupWarning="";
   [System.Text.Json.Serialization.JsonIgnore] public string WorkingInput="";
+  [System.Text.Json.Serialization.JsonIgnore] public string DelogoInput="";
   [System.Text.Json.Serialization.JsonIgnore] public string MediaInput=>string.IsNullOrEmpty(WorkingInput)?Input:WorkingInput;
   public TimelineRepairReport TimelineRepair;
   public string Id=Guid.NewGuid().ToString("N"),Input,Output="",Fingerprint,Message="",LogFile="",Command="";
@@ -177,6 +182,7 @@ namespace TsEncodeFlow {
    if(!File.Exists(s.Nvenc))s.Nvenc=FindTool("NVEncC64.exe","NVEncC.exe");if(!File.Exists(s.Vceenc))s.Vceenc=FindTool("VCEEncC64.exe","VCEEncC.exe");if(!File.Exists(s.Qsvenc))s.Qsvenc=FindTool("QSVEncC64.exe","QSVEncC.exe");
    if(!File.Exists(s.EpgDll))s.EpgDll=FindTool("EpgDataCap3.dll");
    if(!File.Exists(s.CaptionTool))s.CaptionTool=FindTool("CaptionProbe.exe");
+   if(!File.Exists(s.DelogoPlugin))s.DelogoPlugin=FindTool("DelogoHD.dll");if(!File.Exists(s.Avs2PipeMod))s.Avs2PipeMod=FindTool("avs2pipemod64.exe","avs2pipemod.exe");
   }
   public static string Fingerprint(string file) {var f=new FileInfo(file);return f.FullName.ToUpperInvariant()+"|"+f.Length+"|"+f.LastWriteTimeUtc.Ticks;}
  }

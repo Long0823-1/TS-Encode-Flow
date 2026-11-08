@@ -28,17 +28,21 @@ namespace TsEncodeFlow {
    var keep=Commercials.Keep(j);double expectedDuration=Commercials.Duration(j);
    j.Message="逆テレシネを判定中";changed();j.Telecine=await Telecine.Analyze(j,settings,token,log);changed();
    string subtitle=await Subtitles.Prepare(j,settings,dataFolder,token,log,changed);
+   j.DelogoInput="";
+   if(j.Preset.RemoveLogo)j.DelogoInput=await Delogo.Prepare(j,settings,dataFolder,token,log,changed);
+   string delogoInput=j.DelogoInput.Length>0?j.DelogoInput:null;
    string cutFilter=null;
    if(keep!=null) {
     string folder=Commercials.Folder(j,dataFolder);Directory.CreateDirectory(folder);
     subtitle=Commercials.CutSubtitles(j,subtitle,folder,log);
-    if(j.Preset.Engine==Engine.CPU||j.Metadata.InverseTelecine){cutFilter=Path.Combine(folder,"trim-filter.txt");File.WriteAllText(cutFilter,Commercials.Filter(keep,j.Metadata,Commands.Filters(j.Preset,j.Metadata)));}
+    // Delogo builds its intermediate already CM-trimmed (AVS Trim), so no trim filter is needed for it.
+    if(delogoInput==null&&(j.Preset.Engine==Engine.CPU||j.Metadata.InverseTelecine)){cutFilter=Path.Combine(folder,"trim-filter.txt");File.WriteAllText(cutFilter,Commercials.Filter(keep,j.Metadata,Commands.Filters(j.Preset,j.Metadata)));}
    }
    string root=Path.GetFullPath(j.OutputFolder),relative=Names.Render(j.FileName,j.Metadata,j.Preset);
    string desired=Path.GetFullPath(Path.Combine(root,relative));if(!desired.StartsWith(root.TrimEnd('\\')+"\\",StringComparison.OrdinalIgnoreCase))throw new ArgumentException("出力先が保存フォルダーの範囲外です。");
    if(desired.Length>200)throw new ArgumentException("出力パスが長すぎます。マクロや保存先を短くしてください。");
    Directory.CreateDirectory(Path.GetDirectoryName(desired));
-   string final=null,reserve=null,temp=null,selected=null,muxed=null,cutAudio=null,audioFilter=null,audioMux=null;FileStream reservation=null;
+   string final=null,reserve=null,temp=null,selected=null,muxed=null,cutAudio=null,audioFilter=null,audioMux=null,delogoAudio=null,delogoAudioFilter=null;FileStream reservation=null;
    try {
     for(int n=0;n<10000;n++) {
      string name=n==0?desired:Path.Combine(Path.GetDirectoryName(desired),Path.GetFileNameWithoutExtension(desired)+" ("+n+")"+Path.GetExtension(desired));
@@ -56,9 +60,21 @@ namespace TsEncodeFlow {
     Command command=null;
     bool advanced=AdvancedOptions.Enabled(p);
     if(advanced){j.Message="詳細パイプラインを開始中";changed();await AdvancedEncoder.Run(j,s,dataFolder,temp,token,log,changed);}
-    else if(p.Engine==Engine.CPU)command=Commands.Ffmpeg(s,p,j.Metadata,j.MediaInput,temp,cutFilter:cutFilter);
+    else if(p.Engine==Engine.CPU)command=delogoInput==null?Commands.Ffmpeg(s,p,j.Metadata,j.MediaInput,temp,cutFilter:cutFilter):Commands.Ffmpeg(s,p,Delogo.VideoOnly(j.Metadata),delogoInput,temp);
     else {
      string encoder=p.Engine==Engine.NVEncC?s.Nvenc:p.Engine==Engine.VCEEncC?s.Vceenc:s.Qsvenc;if(!File.Exists(encoder))throw new FileNotFoundException("選択したGPUエンコーダーがありません。設定タブでパスを指定してください。",encoder);
+     if(delogoInput!=null) {
+      var dm=Delogo.VideoOnly(j.Metadata);
+      if(j.Metadata.InverseTelecine||!string.IsNullOrWhiteSpace(p.Fps)) {
+       selected=Path.Combine(EncodeCache.WorkFolder(dataFolder,s,j),"selected.mkv");
+       j.Message="FPS・逆テレシネの可逆前処理中（空き容量が必要）";changed();
+       var pre=Commands.Ffmpeg(s,p,dm,delogoInput,selected,true,false);
+       log(pre.ToString());var preResult=await Processes.Run(pre.Exe,pre.Args,token,log);
+       if(preResult.ExitCode!=0)throw new InvalidDataException("前処理失敗：終了コード"+preResult.ExitCode+"\n"+Tail(preResult.Error));
+       command=Commands.Hardware(s,p,dm,selected,temp,true,null);
+      }else command=Commands.Hardware(s,p,dm,delogoInput,temp,false,null);
+     }
+     else {
      bool prefiltered=!string.IsNullOrWhiteSpace(p.Fps)||j.Metadata.InverseTelecine;
      selected=Path.Combine(EncodeCache.WorkFolder(dataFolder,s,j),"selected"+(prefiltered?".mkv":".ts"));
      j.Message=prefiltered?"FPS・逆テレシネの可逆前処理中（空き容量が必要）":"対象サービスの映像・音声を分離中";changed();
@@ -66,11 +82,12 @@ namespace TsEncodeFlow {
      log(demux.ToString());var result=await Processes.Run(demux.Exe,demux.Args,token,log);
      if(result.ExitCode!=0)throw new InvalidDataException("前処理失敗：終了コード"+result.ExitCode+"\n"+Tail(result.Error));
      command=Commands.Hardware(s,p,j.Metadata,selected,temp,prefiltered,j.Metadata.InverseTelecine?null:keep);
+     }
     }
     if(!advanced){j.Command=command.ToString();j.Message="変換中："+p.Engine;log(j.Command);changed();
     var encoded=await Processes.Run(command.Exe,command.Args,token,progress);
     if(encoded.ExitCode!=0)throw new InvalidDataException("変換失敗：終了コード"+encoded.ExitCode+"\n"+Tail(encoded.Error));}
-    if(!advanced&&keep!=null&&p.Engine!=Engine.CPU&&!j.Metadata.InverseTelecine&&j.Metadata.AudioIndex>=0) {
+    if(!advanced&&keep!=null&&(p.Engine!=Engine.CPU||delogoInput!=null)&&(!j.Metadata.InverseTelecine||delogoInput!=null)&&j.Metadata.AudioIndex>=0) {
      j.Message="CM区間に合わせて音声を再構成中";changed();
      cutAudio=Path.Combine(Path.GetDirectoryName(final),".cut-audio-"+j.Id+".m4a");audioFilter=cutAudio+".filter";audioMux=Path.Combine(Path.GetDirectoryName(final),".cut-av-"+j.Id+Path.GetExtension(final));
      File.WriteAllText(audioFilter,Commercials.AudioFilter(keep,j.Metadata));
@@ -78,6 +95,22 @@ namespace TsEncodeFlow {
      if(audio.ExitCode!=0)throw new InvalidDataException("CM音声の処理に失敗しました。");
      var combined=await Processes.Run(s.Ffmpeg,new[]{"-hide_banner","-nostdin","-y","-i",temp,"-i",cutAudio,"-map","0:v:0","-map","1:a:0","-c","copy","-map_metadata","-1","-map_chapters","-1",audioMux},token,log);
      if(combined.ExitCode!=0)throw new InvalidDataException("CM映像と音声の結合に失敗しました。");File.Delete(temp);temp=audioMux;audioMux=null;
+    }
+    if(!advanced&&delogoInput!=null&&keep==null&&j.Metadata.AudioIndex>=0) {
+     j.Message="ロゴ消し済み映像へ音声を結合中";changed();
+     audioMux=Path.Combine(Path.GetDirectoryName(final),".delogo-av-"+j.Id+Path.GetExtension(final));
+     if(p.CopyAudio) {
+      // Realign the copied audio to the video timeline origin (same source-time seek the advanced mux uses).
+      var copy=await Processes.Run(s.Ffmpeg,new[]{"-hide_banner","-nostdin","-y","-i",temp,"-ss",Commercials.N(AdvancedEncoder.SourceStart(j.Metadata,0)),"-i",j.MediaInput,"-map","0:v:0","-map","1:"+j.Metadata.AudioIndex,"-c","copy","-map_metadata","-1","-map_chapters","-1",audioMux},token,log);
+      if(copy.ExitCode!=0)throw new InvalidDataException("ロゴ消し映像と音声の結合に失敗しました。");File.Delete(temp);temp=audioMux;audioMux=null;
+     }else {
+      delogoAudio=Path.Combine(Path.GetDirectoryName(final),".delogo-audio-"+j.Id+".m4a");delogoAudioFilter=delogoAudio+".filter";
+      File.WriteAllText(delogoAudioFilter,Commercials.AudioFilter(new List<TimeRange>{new TimeRange {Start=0,End=j.Metadata.Duration}},j.Metadata));
+      var audio=await Processes.Run(s.Ffmpeg,new[]{"-hide_banner","-nostdin","-y","-i",j.MediaInput,"-/filter_complex",delogoAudioFilter,"-map","[aout]","-c:a","aac","-b:a",p.AudioBitrate+"k",delogoAudio},token,log);
+      if(audio.ExitCode!=0)throw new InvalidDataException("ロゴ消し用の音声処理に失敗しました。");
+      var combined=await Processes.Run(s.Ffmpeg,new[]{"-hide_banner","-nostdin","-y","-i",temp,"-i",delogoAudio,"-map","0:v:0","-map","1:a:0","-c","copy","-map_metadata","-1","-map_chapters","-1",audioMux},token,log);
+      if(combined.ExitCode!=0)throw new InvalidDataException("ロゴ消し映像と音声の結合に失敗しました。");File.Delete(temp);temp=audioMux;audioMux=null;
+     }
     }
     if(p.EmbedMetadata||subtitle!=null||p.CmMode!=CmMode.Off) {
      j.Message="字幕・番組情報を動画に格納中";changed();muxed=Path.Combine(Path.GetDirectoryName(final),".mux-"+j.Id+Path.GetExtension(final));
@@ -111,7 +144,7 @@ namespace TsEncodeFlow {
     catch(Exception e)when(e is IOException||e is UnauthorizedAccessException||e is ArgumentException){j.CacheCleanupWarning=e.Message;log("完成動画は保存済みですが、キャッシュを削除できません："+e.Message);}
     j.Message=!string.IsNullOrEmpty(j.Metadata.SubtitleWarning)?"完了（字幕の警告あり・元TSを保持）":j.Preset.KeepSubtitles&&subtitle==null?"完了（"+j.Metadata.SubtitleStatus+"・元TSを保持）":"完了（元TSを保持）";if(j.CacheCleanupWarning.Length>0)j.Message+=" キャッシュ削除の警告あり";log(j.Message+"："+final);
    }finally {
-    reservation?.Dispose();foreach(string ownFile in new[]{reserve,temp,selected,muxed,cutAudio,audioFilter,audioMux})if(ownFile!=null&&File.Exists(ownFile))try{File.Delete(ownFile);}catch(IOException){}
+    reservation?.Dispose();foreach(string ownFile in new[]{reserve,temp,selected,muxed,cutAudio,audioFilter,audioMux,delogoAudio,delogoAudioFilter})if(ownFile!=null&&File.Exists(ownFile))try{File.Delete(ownFile);}catch(IOException){}
    }
   }
   public static string Tail(string text)=>text.Length>1800?text.Substring(text.Length-1800):text;

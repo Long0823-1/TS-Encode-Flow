@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 namespace TsEncodeFlow {
@@ -33,6 +34,16 @@ namespace TsEncodeFlow {
    File.Move(target,stage);
    try{if(current)Latest(data,key,StationLogos.Find(data,key));File.Delete(stage);}
    catch{if(File.Exists(stage)&&!File.Exists(target)){File.Move(stage,target);if(current)Latest(data,key,target);}throw;}
+  }
+  public static void DeleteStation(string data,string key) {
+   StationLogos.Describe(key);string folder=Folder(data);
+   var removed=new List<(string from,string to)>();string stage=null;
+   try {
+    foreach(string target in StationLogos.Files(data,key)) {string moved=target+".delete-"+Guid.NewGuid().ToString("N")+".tmp";File.Move(target,moved);removed.Add((moved,target));}
+    string manifest=Path.Combine(folder,key+".latest");if(File.Exists(manifest)){stage=manifest+".delete-"+Guid.NewGuid().ToString("N")+".tmp";File.Move(manifest,stage);}
+    foreach(var entry in removed)File.Delete(entry.from);if(stage!=null)File.Delete(stage);
+    string area=Path.Combine(folder,key+".area.json");if(File.Exists(area))File.Delete(area);
+   }catch{foreach(var entry in removed)if(File.Exists(entry.from)&&!File.Exists(entry.to))File.Move(entry.from,entry.to);if(stage!=null&&File.Exists(stage)&&!File.Exists(Path.Combine(folder,key+".latest")))File.Move(stage,Path.Combine(folder,key+".latest"));throw;}
   }
  }
 }

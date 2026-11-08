@@ -60,7 +60,7 @@ namespace TsEncodeFlow {
   public void Tick() {
    foreach(string request in Directory.EnumerateFiles(Path.Combine(DataFolder,"Inbox"),"*.json").OrderBy(File.GetCreationTimeUtc).ThenBy(Path.GetFileName,StringComparer.Ordinal).Take(100))try {
     var value=Store.Load<Request>(request,()=>new Request());
-    if(value.Action=="clear-encode-cache")ClearEncodeCache(value.JobId);else if(value.Action=="import-logo"||value.Action=="delete-logo"||value.Action=="delete-logo-candidate")ManageLogo(value);else if(value.Action=="approve-logo")ReviewLogo(value,true);else if(value.Action=="reject-logo")ReviewLogo(value,false);else if(value.Action=="set-logo-area")SetLogoArea(value);else if(value.Action=="approve-cm")ApproveCm(value);else if(value.Action=="change-preset")ChangePreset(value.JobId,value.Profile?.Preset);else if(value.Action=="clear-history")ClearHistory();else if(value.Action=="shutdown"){StopRequested=true;Paused=true;}else if(value.Action=="retry-ignore-subtitles")Retry(value.JobId,true);else if(value.Action=="cancel-all")CancelAll();else if(value.Action=="cancel")Cancel(value.JobId);else if(value.Action=="retry")Retry(value.JobId);else if(value.Action=="pause")Paused=true;else if(value.Action=="resume")Paused=false;else {var added=Enqueue(value.Path,false,value.Profile?.Preset,value.Profile?.OutputFolder,value.Profile?.FileName);if(added==null)Notice?.Invoke("同じTSはすでに待機中または変換中です。キューを確認してください。");else if(!StopRequested)Paused=false;}
+    if(value.Action=="clear-encode-cache")ClearEncodeCache(value.JobId);else if(value.Action=="import-logo"||value.Action=="delete-logo"||value.Action=="delete-logo-candidate"||value.Action=="delete-station")ManageLogo(value);else if(value.Action=="approve-logo")ReviewLogo(value,true);else if(value.Action=="reject-logo")ReviewLogo(value,false);else if(value.Action=="set-logo-area")SetLogoArea(value);else if(value.Action=="approve-cm")ApproveCm(value);else if(value.Action=="change-preset")ChangePreset(value.JobId,value.Profile?.Preset);else if(value.Action=="clear-history")ClearHistory();else if(value.Action=="shutdown"){StopRequested=true;Paused=true;}else if(value.Action=="retry-ignore-subtitles")Retry(value.JobId,true);else if(value.Action=="cancel-all")CancelAll();else if(value.Action=="cancel")Cancel(value.JobId);else if(value.Action=="retry")Retry(value.JobId);else if(value.Action=="pause")Paused=true;else if(value.Action=="resume")Paused=false;else {var added=Enqueue(value.Path,false,value.Profile?.Preset,value.Profile?.OutputFolder,value.Profile?.FileName);if(added==null)Notice?.Invoke("同じTSはすでに待機中または変換中です。キューを確認してください。");else if(!StopRequested)Paused=false;}
     File.Delete(request);
    }catch(Exception e){Notice?.Invoke("追加失敗："+e.Message);try{File.Move(request,request+".error");}catch(IOException){}}
    if(Settings.WatchEnabled&&(DateTime.UtcNow-lastScan).TotalSeconds>=3) {
@@ -125,6 +125,13 @@ namespace TsEncodeFlow {
       var pending=Jobs.Where(j=>(j.State==State.NeedsLogo||j.State==State.NeedsLogoReview)&&j.Metadata!=null&&StationLogos.Key(j)==station.Key).ToList();foreach(var j in pending){j.State=State.Waiting;j.LogoCandidate="";j.Message="手動追加した局ロゴで自動開始待ち";}if(pending.Count>0)Paused=false;
       result.Message="局ロゴを追加し、使用中に設定しました。";Save();
      }else if(request.Action=="delete-logo"){LogoLibrary.Delete(DataFolder,station.Key,request.LogoFileName,request.Fingerprint);result.Message="ロゴを削除しました。元TSと保存した範囲は保持しています。";}
+     else if(request.Action=="delete-station") {
+      var pending=Jobs.Where(j=>(j.State==State.NeedsLogo||j.State==State.NeedsLogoReview)&&j.Metadata!=null&&StationLogos.Key(j)==station.Key).ToList();
+      LogoLibrary.DeleteStation(DataFolder,station.Key);
+      foreach(var j in pending){if(j.State==State.NeedsLogoReview){j.LogoCandidate="";}j.State=State.Failed;j.Message="局ロゴの登録を削除しました。使う場合はロゴ範囲またはLGDを登録し直してください。";}
+      if(pending.Count>0)Save();
+      result.Message="この局のロゴ登録・保存範囲をすべて削除しました。元TSは保持しています。";
+     }
      else if(request.Action=="delete-logo-candidate") {
       var j=Jobs.FirstOrDefault(j=>j.Id==request.JobId);if(j==null||j.State!=State.NeedsLogoReview||j.Metadata==null||StationLogos.Key(j)!=station.Key)throw new ArgumentException("この放送局の確認待ち候補ではありません。");
       if(request.Fingerprint!=j.Fingerprint||request.Fingerprint!=Store.Fingerprint(j.Input))throw new ArgumentException("入力TSが更新されています。中止後に再試行してください。");

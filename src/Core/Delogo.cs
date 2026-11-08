@@ -156,15 +156,34 @@ namespace TsEncodeFlow {
     string probeScript=Path.Combine(folder,"delogo-probe.avs");
     File.WriteAllText(probeScript,"ClearAutoloadDirs()\nLoadPlugin("+Avs(runtimeLsmash)+")\nLWLibavVideoSource("+Avs(job.MediaInput)+",threads=4,repeat=false)\n",encoding);
     string sharedIndex=Path.GetFullPath(job.MediaInput)+".lwi",backup=Path.Combine(folder,"previous-delogo-index.lwi");
+    // Share the canonical CM index when it exists (same source + same L-SMASH):
+    // the delogo source is MediaInput, exactly what CM analysis indexed, and an
+    // .lwi is a pure function of (source bytes, index format) — L-SMASH ignores
+    // stream_index when building. Copying it avoids a second full indexing pass
+    // whose -info run fails on some real recordings (empty stderr, exit != 0).
+    string canonical=Path.Combine(data,"Commercials","IndexCache",CmIndex.Key(job.MediaInput)+".lwi"),canonicalReceipt=canonical+".identity";
+    string canonicalIdentity=Store.Fingerprint(job.MediaInput)+"|"+Store.Fingerprint(lsmash);
+    bool reused=false;
+    if(File.Exists(canonical)&&File.Exists(canonicalReceipt)&&File.ReadAllText(canonicalReceipt)==canonicalIdentity) {
+     try{File.Copy(canonical,privateIndex,true);reused=true;log("CM解析のインデックスをロゴ消しにも再利用します。");}catch(IOException){reused=false;}
+    }
+    if(!reused) {
+    // Serialize the sidecar build against CM analysis (same input = same .lwi path).
+    using var lease=await CmIndex.Lock(job.MediaInput,token);
     bool hadIndex=File.Exists(sharedIndex);if(hadIndex)File.Move(sharedIndex,backup);
     try {
      var info=await Processes.Run(hostExe,new[]{"-info",probeScript},token,log);
-     if(info.ExitCode!=0)throw new InvalidDataException("ロゴ消し用インデックスを作成できません："+Converter.Tail(info.Error));
+     if(info.ExitCode!=0) {
+      string detail=(string.IsNullOrWhiteSpace(info.Error)?info.Output:info.Error);
+      string tail=string.IsNullOrWhiteSpace(detail)?"(出力なし)":Converter.Tail(detail.Trim());
+      throw new InvalidDataException("ロゴ消し用インデックスを作成できません（avs2pipemod 終了コード "+info.ExitCode+"）："+tail);
+     }
      if(!File.Exists(sharedIndex))throw new InvalidDataException("ロゴ消し用インデックスを作成できません。入力フォルダーの書き込み権限を確認してください。");
      File.Copy(sharedIndex,privateIndex,true);
     }finally {
      if(File.Exists(sharedIndex))File.Delete(sharedIndex);
      if(hadIndex&&File.Exists(backup))File.Move(backup,sharedIndex);
+    }
     }
    }
    // Map the selected FFmpeg video stream to the L-SMASH index stream (same method as CM analysis).

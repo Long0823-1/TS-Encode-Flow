@@ -21,7 +21,11 @@ static class Program {
    }
    FileStream lease;
    try{lease=File.Open(Path.Combine(data,"worker.lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.Read);}catch(IOException){return args.Contains("--run")?2:0;}
-   using(lease)using(var queue=new QueueManager(data)) {
+   using(lease) {
+    // Self-update staging: fetch the newest release in the background so the
+    // GUI can apply it when idle. Best effort; failures only mark the state.
+    _ = Task.Run(async()=>{try{var st=SelfUpdate.Read(data);if(st.Phase!="staged"||!File.Exists(Path.Combine(st.Staging??"","TS-Encode-Flow.exe")))await SelfUpdate.DownloadLatest(data,typeof(Program).Assembly.GetName().Version??new Version(0,0,0),CancellationToken.None,null);}catch{}});
+   using(var queue=new QueueManager(data)) {
     string settingsFile=Path.Combine(data,"settings.json"),statusFile=Path.Combine(data,"worker-status.json");
     var settings=Integration.LoadSettings(data);queue.Settings=settings;queue.SaveSettings();
     var previous=Integration.ReadStatus(data);queue.Paused=previous.Paused&&!args.Contains("--run");
@@ -42,6 +46,7 @@ static class Program {
      }
      queue.Dispose();while(queue.ActiveCount>0)Thread.Sleep(100);return 0;
     }finally{status.Running=false;status.Paused=queue.Paused;status.Active=0;status.Updated=DateTime.UtcNow;Store.Save(statusFile,status);}
+   }
    }
   }catch(Exception e){File.AppendAllText(Path.Combine(data,"worker-error.log"),DateTime.Now+" "+e+Environment.NewLine);return 1;}
  }

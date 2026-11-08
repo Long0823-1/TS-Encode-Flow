@@ -34,7 +34,8 @@ namespace TsEncodeFlow {
    string cutFilter=null;
    if(keep!=null) {
     string folder=Commercials.Folder(j,dataFolder);Directory.CreateDirectory(folder);
-    subtitle=Commercials.CutSubtitles(j,subtitle,folder,log);
+    if(subtitle=="arib-raw")subtitle=await Subtitles.CutRawSubtitles(j,settings,folder,log,token);
+    else subtitle=Commercials.CutSubtitles(j,subtitle,folder,log);
     // Delogo builds its intermediate already CM-trimmed (AVS Trim), so no trim filter is needed for it.
     if(delogoInput==null&&(j.Preset.Engine==Engine.CPU||j.Metadata.InverseTelecine)){cutFilter=Path.Combine(folder,"trim-filter.txt");File.WriteAllText(cutFilter,Commercials.Filter(keep,j.Metadata,Commands.Filters(j.Preset,j.Metadata)));}
    }
@@ -112,7 +113,7 @@ namespace TsEncodeFlow {
       if(combined.ExitCode!=0)throw new InvalidDataException("ロゴ消し映像と音声の結合に失敗しました。");File.Delete(temp);temp=audioMux;audioMux=null;
      }
     }
-    if(p.EmbedMetadata||subtitle!=null||p.CmMode!=CmMode.Off) {
+    if(p.EmbedMetadata||subtitle!=null||p.CmMode!=CmMode.Off||Subtitles.WantsRaw(j)) {
      j.Message="字幕・番組情報を動画に格納中";changed();muxed=Path.Combine(Path.GetDirectoryName(final),".mux-"+j.Id+Path.GetExtension(final));
      subtitle=await Subtitles.Pack(j,s,temp,subtitle,muxed,token,log);File.Delete(temp);temp=muxed;muxed=null;
     }
@@ -124,7 +125,7 @@ namespace TsEncodeFlow {
     var video=MetadataReader.Items(data,"streams").Select(MetadataReader.Obj).FirstOrDefault(x=>MetadataReader.Text(x,"codec_type")=="video");
     if(video==null||MetadataReader.Int(video,"width")==0)throw new InvalidDataException("出力に有効な映像がありません。");
     if(j.Metadata.AudioIndex>=0&&!MetadataReader.Items(data,"streams").Select(MetadataReader.Obj).Any(x=>MetadataReader.Text(x,"codec_type")=="audio"))throw new InvalidDataException("出力から音声が失われています。");
-    if(subtitle!=null&&!MetadataReader.Items(data,"streams").Select(MetadataReader.Obj).Any(x=>MetadataReader.Text(x,"codec_type")=="subtitle")) {
+    if(subtitle!=null&&!MetadataReader.Items(data,"streams").Select(MetadataReader.Obj).Any(x=>MetadataReader.Text(x,"codec_type")=="subtitle"&&(!Subtitles.WantsRaw(j)||MetadataReader.Text(x,"codec_name")=="arib_caption"))) {
      if(!p.IgnoreSubtitleErrors)throw new InvalidDataException("出力から字幕が失われています。");
      Subtitles.Warning(j,"出力に字幕がないため、字幕なしとして保存します。",log);j.Metadata.SubtitleStatus="字幕なしで保存";subtitle=null;
     }

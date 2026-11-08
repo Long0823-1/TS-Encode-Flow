@@ -49,7 +49,7 @@ namespace TsEncodeFlow {
    if(m.Sar<=0||double.IsNaN(m.Sar)||double.IsInfinity(m.Sar))m.Sar=1;
    m.VideoStart=Number(Text(video,"start_time"));m.AudioStart=audio==null?m.VideoStart:Number(Text(audio,"start_time"));m.FormatStart=Number(Text(Obj(data.ContainsKey("format")?data["format"]:null),"start_time"));
    string videoPid=Text(video,"id");if(videoPid.StartsWith("0x")&&int.TryParse(videoPid.Substring(2),NumberStyles.HexNumber,CultureInfo.InvariantCulture,out int pidValue))m.VideoPid=pidValue;
-   if(subtitle!=null){m.SubtitleIndex=Int(subtitle,"index");m.SubtitleCodec=Text(subtitle,"codec_name");string pid=Text(subtitle,"id");try{m.SubtitlePid=pid.StartsWith("0x")?Convert.ToInt32(pid.Substring(2),16):int.Parse(pid);}catch(FormatException){}}
+   if(subtitle!=null){m.SubtitleIndex=Int(subtitle,"index");m.SubtitleCodec=Text(subtitle,"codec_name");m.SubtitleStart=Number(Text(subtitle,"start_time"));string pid=Text(subtitle,"id");try{m.SubtitlePid=pid.StartsWith("0x")?Convert.ToInt32(pid.Substring(2),16):int.Parse(pid);}catch(FormatException){}}
    if(m.Duration<=0)m.Duration=Number(Text(Obj(data.ContainsKey("format")?data["format"]:null),"duration"));
    if(File.Exists(settings.EpgDll))try {
     long middle=-1;

@@ -11,6 +11,7 @@ namespace TsEncodeFlow {
  public enum Engine { CPU, NVEncC, VCEEncC, QSVEncC }
  public enum Codec { H264, HEVC, AV1 }
  public enum Container { mp4, mkv }
+ public enum SubtitleMode { Convert, AribRaw, Both }
  public enum RateMode { Quality, VBR, CBR }
  public enum Deinterlace { None, Yadif, YadifBob, Bwdif, BwdifBob }
  public enum State { Waiting, Running, Completed, Failed, Cancelled, Interrupted, NeedsInput, NeedsCmReview, NeedsLogo, NeedsLogoReview }
@@ -65,6 +66,8 @@ namespace TsEncodeFlow {
   [Category("3. フィルタ"),DisplayName("透過ロゴを消す"),Description("登録済み局ロゴ（LGD）を使い、AviSynth＋DelogoHDで透過ロゴを逆算で除去します。logoframeで検出した表示区間とフェードに追随します。中間映像（可逆）を先に作るため容量と時間が追加で必要です。")]
   public bool RemoveLogo {get;set;}=false;
   public bool KeepSubtitles {get;set;}=true;
+  [Category("3. 字幕"),DisplayName("字幕の格納形式"),Description("Convert=従来どおりASS/SRT等へ変換して格納。AribRaw=MKV保存時のみ、ARIB字幕を変換せずMatroska規格の S_ARIBSUB として生のまま格納（DRCS外字もそのまま残り、DRCS確認も不要。再生にはARIB字幕対応プレイヤー（mpv等）が必要）。Both=変換字幕とARIB生字幕の両方を格納（MKVのみ）。MP4保存時は常に変換字幕になります。")]
+  public SubtitleMode SubtitleMode {get;set;}=SubtitleMode.Convert;
   public CmMode CmMode {get;set;}=CmMode.Off;
   public CmSource CmSource {get;set;}=CmSource.Sidecar;
   public bool CmReview {get;set;}=true;
@@ -128,6 +131,7 @@ namespace TsEncodeFlow {
   public int PcrPid=-1;
   public int ServiceId,EventId,NetworkId,TransportId,Width,Height,VideoIndex,AudioIndex=-1,SubtitleIndex=-1,SubtitlePid=-1,VideoPid=-1;
   public string SubtitleCodec="";
+  public double SubtitleStart;
   public string SubtitleStatus="";
   public string SubtitleWarning="";
   public long SubtitlePackets;

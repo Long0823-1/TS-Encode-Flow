@@ -34,9 +34,10 @@ static partial class Tests {
   Check(Delogo.TrimFrames(chaptersJob)==null,"delogo does not trim for CM chapters mode");
   var noCmJob=new Job {Metadata=trimMeta,Preset=new Preset {RemoveLogo=true}};
   Check(Delogo.TrimFrames(noCmJob)==null,"delogo does not trim without a CM plan");
-  // Frame range conversion rounds keep seconds to frame boundaries.
+  // Frame range conversion follows the CM convention: half-second boundaries round to even frames
+  // (Math.Round defaults), so 20.5s at 25fps starts at frame 512, not 513.
   var frames=Delogo.FrameRanges(new List<TimeRange>{new TimeRange{Start=0,End=10},new TimeRange{Start=20.5,End=30.25}},25);
-  Check(frames.Count==2&&frames[0]==(0,249)&&frames[1]==(513,755),"delogo frame ranges convert seconds to inclusive frames");
+  Check(frames.Count==2&&frames[0]==(0,249)&&frames[1]==(512,755),"delogo frame ranges convert seconds to inclusive frames");
   Check(Delogo.FrameRanges(null,25).Count==0,"delogo frame ranges handle no CM plan");
   // logoframe -oa parsing: S/E pairs, fade seconds become fade frames, unpaired/garbled lines are dropped.
   var segs=Delogo.ParseLogoSegments("   100 S 1 ALL    100    112\n   300 E 2 ALL    292    300\n   500 S 0 ALL    500    500\n   900 E 0 ALL    900    900\ngarbage line\n   950 E 0 ALL    950    950\n",25);

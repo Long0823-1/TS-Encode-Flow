@@ -11,8 +11,12 @@ if($LASTEXITCODE -ne 0){throw 'MAUI publish failed'}
 # apphost, the app assemblies and their json manifests, delete the rest.
 $cultures=@('af-ZA','am-ET','ar','ar-SA','as-IN','az-Latn-AZ','bg-BG','bn-IN','bs-Latn-BA','ca','ca-ES','ca-Es-VALENCIA','cs','cs-CZ','cy-GB','da','da-DK','de','de-DE','el','el-GR','en-GB','en-us','es','es-ES','es-MX','et-EE','eu-ES','fa-IR','fi','fi-FI','fil-PH','fr','fr-FR','ga-IE','gd-gb','gl-ES','gu-IN','he-IL','hi-IN','hr-HR','hu-HU','hy-AM','id-ID','is-IS','it','it-IT','ja-JP','ka-GE','kk-KZ','km-KH','kn-IN','ko-KR','kok-IN','lb-LU','lo-LA','lt-LT','lv-LV','mi-NZ','mk-MK','ml-IN','mr-IN','ms-MY','mt-MT','nb-NO','ne-NP','nl-NL','nn-NO','no','or-IN','pa-IN','pl-PL','pt-BR','pt-PT','quz-PE','ro-RO','ru-RU','sk-SK','sl-SI','sq-AL','sr-Cyrl-BA','sr-Cyrl-RS','sr-Latn-RS','sv-SE','ta-IN','te-IN','th-TH','tr-TR','tt-RU','ug-CN','uk-UA','ur-PK','uz-Latn-UZ','vi-VN','zh-CN','zh-Hans','zh-Hant','zh-HK','zh-TW')
 foreach($name in $cultures){$dir=Join-Path $release $name;if(Test-Path $dir){Remove-Item $dir -Recurse -Force}}
-$keepDlls=@('Microsoft.ui.xaml.dll','MRM.dll','MRMCore.dll','Microsoft.UI.Xaml.Internal.dll','Microsoft.Windows.ApplicationModel.Resources.dll','WinUIEdit.dll','WebView2Loader.dll','CoreMessagingXP.dll','dcompi.dll','DWriteCore.dll','MarshalInspectable.dll','Microsoft.DirectManipulation.dll','wuceffectsi.dll','Microsoft.UI.Composition.OSSupport.dll','Microsoft.UI.Input.dll','Microsoft.UI.Windowing.dll','Microsoft.UI.Windowing.Core.dll','Microsoft.UI.dll','PushNotificationsLongRunningTask.ProxyStub.dll','RestartAgent.exe')
-Get-ChildItem $release -File | Where-Object {($_.Extension -in '.dll','.winmd') -and ($keepDlls -notcontains $_.Name) -and (-not $_.Name.StartsWith('TS-Encode-Flow')) -and (-not $_.Name.StartsWith('EncodeFlow'))} | Remove-Item -Force
+# NOTE: never delete loose .dll/.winmd files from a self-contained publish.
+# The .NET host resolves framework assemblies from the app folder by their
+# .dll names (a missing System.*.dll makes the apphost demand the .NET
+# Desktop Runtime), and WinUI3 loads its native DLLs from the same folder.
+# Removing the culture folders alone takes the root from 100+ entries to
+# roughly 30; the remaining loose files are load-bearing.
 dotnet publish (Join-Path $root 'src/Worker/EncodeFlow.Worker.csproj') -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o (Join-Path $release 'Worker') --nologo
 if($LASTEXITCODE -ne 0){throw 'Worker publish failed'}
 foreach($dir in @((Join-Path $release 'Tools'),(Join-Path $release 'Worker/Tools'))){New-Item -ItemType Directory -Force $dir | Out-Null;Copy-Item (Join-Path $root 'build/native/Release/CaptionProbe.exe') $dir}

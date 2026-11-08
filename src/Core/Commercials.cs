@@ -116,6 +116,7 @@ namespace TsEncodeFlow {
   }
   public static string CutSubtitles(Job j,string subtitle,string folder,Action<string> log) {
    if(subtitle==null)return null;
+   if(subtitle=="arib-raw")return subtitle; // ARIB生字幕の切り取りは Subtitles.CutRawSubtitles（非同期）が担う
    try {string text=RetimeSrt(File.ReadAllText(subtitle),j.Commercials.Keep);if(text.Length==0)return null;string output=Path.Combine(folder,"cut-subtitles.srt");File.WriteAllText(output,text,new UTF8Encoding(false));return output;}
    catch(InvalidDataException)when(j.Preset.IgnoreSubtitleErrors){Subtitles.Warning(j,"字幕の時間変換に失敗したため、字幕なしでCMカットを続行します。",log);j.Metadata.SubtitleStatus="字幕の時間変換を省略";return null;}
   }

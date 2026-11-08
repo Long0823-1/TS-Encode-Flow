@@ -34,12 +34,18 @@ namespace TsEncodeFlow {
    new("avs2pipemod","ロゴ消し · avs2pipemod（AviSynth出力）","chikuzen/avs2pipemod",@"^avs2pipemod-[\d.]+\.zip$","avs2pipemod64.exe","Avs2PipeMod","GPL-3.0。AviSynthスクリプトの映像を標準出力へ流す小さなホスト。ロゴ消し済み映像をFFmpegへ渡すために使います。"),
    new("edcb","EDCB · 番組情報DLL","xtne6f/EDCB",@"^EDCB-work-plus-s-bin\.zip$","EpgDataCap3.dll","EpgDll","EDCB原作・改変部・構成ライブラリの個別条件が適用されます。原作READMEと配布元の文書を確認してください。")
   };
-  static readonly HttpClient Http=CreateClient();
+  public static ToolPackage ById(string id)=>Packages.First(p=>p.Id==id);
+ static readonly HttpClient Http=CreateClient();
   static HttpClient CreateClient(){var h=new HttpClient {Timeout=TimeSpan.FromMinutes(30)};h.DefaultRequestHeaders.UserAgent.ParseAdd("TS-Encode-Flow-ToolSetup/1.0");return h;}
   public static string Root(string data)=>System.IO.Path.GetFullPath(System.IO.Path.Combine(data,"Tools"));
   public static ToolReceipt Installed(string data,ToolPackage tool)=>Store.Load(System.IO.Path.Combine(Root(data),tool.Id,"installed.json"),()=>new ToolReceipt());
   static async Task<(string Version,string Name,string Url,string Digest)> Resolve(string repo,string pattern,CancellationToken token,string release="") {
-   using var response=await Http.GetAsync("https://api.github.com/repos/"+repo+(string.IsNullOrEmpty(release)?"/releases/latest":"/releases/tags/"+Uri.EscapeDataString(release)),token);response.EnsureSuccessStatusCode();
+   string path;
+   if(!string.IsNullOrEmpty(release))path="/releases/tags/"+Uri.EscapeDataString(release);
+   else if(repo=="HomeOfAviSynthPlusEvolution/DelogoHD")path="/releases/tags/v13.0.1";
+   else if(repo=="chikuzen/avs2pipemod")path="/releases/tags/1.3.1";
+   else path="/releases/latest";
+   using var response=await Http.GetAsync("https://api.github.com/repos/"+repo+path,token);response.EnsureSuccessStatusCode();
    using var json=JsonDocument.Parse(await response.Content.ReadAsStringAsync(token));
    var matches=json.RootElement.GetProperty("assets").EnumerateArray().Where(x=>System.Text.RegularExpressions.Regex.IsMatch(x.GetProperty("name").GetString(),pattern)).ToList();
    if(matches.Count!=1)throw new InvalidDataException(repo+"：対応する配布ファイルを一意に選べません。配布元を確認してください。");

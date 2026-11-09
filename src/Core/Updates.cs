@@ -40,9 +40,8 @@ namespace TsEncodeFlow {
    public DateTimeOffset Published;
    public bool Prerelease;
   }
-  // Newest semantic release wins — prereleases included on purpose. The user
-  // asked for "always bring me the newest"; during this project's rapid
-  // iteration every build is effectively a prerelease anyway.
+  // Newest STABLE semantic release wins. Prereleases are never auto-update
+  // targets (user decision 2026-11-09: アプリ側は正式版のみ自動更新).
   public static Candidate PickLatest(JsonElement releases) {
    Candidate best=null;
    foreach(var release in releases.EnumerateArray()) {
@@ -62,8 +61,12 @@ namespace TsEncodeFlow {
     DateTimeOffset published=DateTimeOffset.MinValue;
     if(release.TryGetProperty("published_at",out var at)&&at.ValueKind==JsonValueKind.String)DateTimeOffset.TryParse(at.GetString(),out published);
     bool prerelease=release.TryGetProperty("prerelease",out var pre)&&pre.ValueKind==JsonValueKind.True;
+    // App-side policy (user decision 2026-11-09): auto-update targets STABLE
+    // releases only. Prereleases are published for manual download/testing
+    // and must never be pulled in automatically.
+    if(prerelease)continue;
     if(best==null||version>best.Version||(version==best.Version&&published>best.Published))
-     best=new Candidate {Tag=tagElement.GetString(),Version=version,ZipUrl=zipUrl,Digest=digest,Published=published,Prerelease=prerelease};
+     best=new Candidate {Tag=tagElement.GetString(),Version=version,ZipUrl=zipUrl,Digest=digest,Published=published,Prerelease=false};
    }
    return best;
   }

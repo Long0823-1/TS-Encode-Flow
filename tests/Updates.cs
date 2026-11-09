@@ -36,7 +36,8 @@ static partial class Tests {
   handler.Body=List(Release("v0.2.3"));Check(!(await Updates.Check(http,new Version(0,2,4))).Available,"older release never prompts downgrade");
   handler.Body=List(Release("v0.2.10"));Check((await Updates.Check(http,new Version(0,2,9))).Available,"release comparison is numeric");
   handler.Body=List(Release("v1.0.0",draft:true));Check(!(await Updates.Check(http,new Version(0,2,4))).Available,"draft releases ignored");
-  handler.Body=List(Release("v0.3.0",prerelease:true));Check((await Updates.Check(http,new Version(0,2,4))).Available,"prereleases are update targets (user wants the newest)");
+  handler.Body=List(Release("v0.3.0",prerelease:true));Check(!(await Updates.Check(http,new Version(0,2,4))).Available,"prereleases are never auto-update targets (formal releases only)");
+  handler.Body=List(Release("v0.3.0",prerelease:true),Release("v0.2.5"));Check((await Updates.Check(http,new Version(0,2,4))).Version=="v0.2.5","a newer prerelease does not shadow the newest stable");
   handler.Body=List(Release("bad-tag"));Check(!(await Updates.Check(http,new Version(0,2,4))).Available,"invalid version does not prompt update");
   handler.Body=List(Release("v2026.11.09.2"));Check(!(await Updates.Check(http,new Version(0,2,4))).Available,"date-style CI tags are not update targets");
   handler.Body=List(Release("v0.2.6",assets:""));Check(!(await Updates.Check(http,new Version(0,2,4))).Available,"release without the app zip is not an update target");

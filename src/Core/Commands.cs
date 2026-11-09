@@ -9,6 +9,7 @@ namespace TsEncodeFlow {
  public sealed class Command {public string Exe;public List<string> Args=new List<string>();public override string ToString()=>Processes.Quote(Exe)+" "+string.Join(" ",Args.Select(Processes.Quote));}
  public static class Commands {
   static string N(int n)=>n.ToString(CultureInfo.InvariantCulture);
+  public static string SarRatio(double sar){for(int den=1;den<=1000;den++){int num=(int)Math.Round(sar*den);if(num>0&&Math.Abs(num/sar/den-1)<0.0005)return num.ToString(CultureInfo.InvariantCulture)+":"+den.ToString(CultureInfo.InvariantCulture);}return "1:1";}
   public static void Validate(Preset p) {
    AdvancedOptions.Validate(p);
    if(p.AutoInverseTelecine&&!string.IsNullOrWhiteSpace(p.Fps))throw new ArgumentException("自動逆テレシネではFPS指定を空欄にしてください。");
@@ -87,7 +88,7 @@ namespace TsEncodeFlow {
     if(p.CropLeft+p.CropTop+p.CropRight+p.CropBottom>0)a.AddRange(new[]{"--crop",string.Join(",",p.CropLeft,p.CropTop,p.CropRight,p.CropBottom)});
     if(p.Deinterlace==Deinterlace.Yadif||p.Deinterlace==Deinterlace.YadifBob)a.AddRange(new[]{"--vpp-yadif","mode="+(p.Deinterlace==Deinterlace.YadifBob?"bob":"auto")});
     if(p.Deinterlace==Deinterlace.Bwdif||p.Deinterlace==Deinterlace.BwdifBob)a.AddRange(new[]{"--vpp-bwdif","mode="+(p.Deinterlace==Deinterlace.BwdifBob?"bob":"frame")});
-    var r=Resolution(p,m);if(r!=null)a.AddRange(new[]{"--output-res",r[0]+"x"+r[1],"--sar","1:1"});
+    var r=Resolution(p,m);if(r!=null)a.AddRange(new[]{"--output-res",r[0]+"x"+r[1],"--sar","1:1"});else if(Math.Abs(m.Sar-1)>0.001&&m.Sar>0)a.AddRange(new[]{"--sar",SarRatio(m.Sar)}); // VCEEncC/NVEncC/QSVEncC drop the input SAR otherwise (16:9 became 4:3)
     if(p.Denoise)a.Add("--vpp-knn");if(p.Sharpen)a.Add("--vpp-unsharp");
    }
    if(m.AudioIndex>=0&&keep==null){if(p.CopyAudio)a.AddRange(new[]{"--audio-copy","1"});else a.AddRange(new[]{"--audio-codec","1?aac","--audio-bitrate","1?"+p.AudioBitrate});}

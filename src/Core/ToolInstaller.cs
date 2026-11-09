@@ -31,7 +31,6 @@ namespace TsEncodeFlow {
    new("cm-components","CM解析 · chapter_exe / join_logo_scp / AviSynth","rigaya/Amatsukaze",@"^Amatsukaze_[\d.]+\.7z$","chapter_exe.exe","ChapterExe","CM解析に必要な構成物のみを展開。Amatsukaze本体・GUI・エンコーダーは導入しません。GPL等、各構成物の条件を確認できます。"),
    new("logoframe","CM解析 · logoframe（ロゴ検出）","Long0823-1/TS-Encode-Flow",@"^TS-Encode-Flow-CM-Logo-win-x64\.zip$","logoframe.exe","LogoFrame","GPL-3.0。tobitti0/logoframeをWindows x64向けにビルド。ソースコード・変更内容・ライセンスを同梱。","cm-logo-v3"),
    new("delogohd","ロゴ消し · DelogoHD（AviSynthプラグイン）","HomeOfAviSynthPlusEvolution/DelogoHD",@"^delogohd-windows-x64\.zip$","DelogoHD.dll","DelogoPlugin","GPL-2.0。MakKi氏の透過性ロゴフィルタ delogo を継承するAviSynth+／VapourSynth用プラグイン。CM解析用に導入済みのAviSynth・L-SMASHと組み合わせて使います。"),
-   new("avs2pipemod","ロゴ消し · avs2pipemod（AviSynth出力）","chikuzen/avs2pipemod",@"^avs2pipemod-[\d.]+\.zip$","avs2pipemod64.exe","Avs2PipeMod","GPL-3.0。AviSynthスクリプトの映像を標準出力へ流す小さなホスト。ロゴ消し済み映像をFFmpegへ渡すために使います。"),
    new("edcb","EDCB · 番組情報DLL","xtne6f/EDCB",@"^EDCB-work-plus-s-bin\.zip$","EpgDataCap3.dll","EpgDll","EDCB原作・改変部・構成ライブラリの個別条件が適用されます。原作READMEと配布元の文書を確認してください。")
   };
   public static ToolPackage ById(string id)=>Packages.First(p=>p.Id==id);
@@ -43,7 +42,6 @@ namespace TsEncodeFlow {
    string path;
    if(!string.IsNullOrEmpty(release))path="/releases/tags/"+Uri.EscapeDataString(release);
    else if(repo=="HomeOfAviSynthPlusEvolution/DelogoHD")path="/releases/tags/v13.0.1";
-   else if(repo=="chikuzen/avs2pipemod")path="/releases/tags/1.3.1";
    else path="/releases/latest";
    using var response=await Http.GetAsync("https://api.github.com/repos/"+repo+path,token);response.EnsureSuccessStatusCode();
    using var json=JsonDocument.Parse(await response.Content.ReadAsStringAsync(token));

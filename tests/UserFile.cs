@@ -13,9 +13,10 @@ static partial class Tests {
   var preset=new Preset {Name=mode,Engine=Engine.VCEEncC,Codec=mode.Contains("hevc")?Codec.HEVC:Codec.H264,Container=mode.Contains("hevc")?Container.mkv:Container.mp4,Quality=mode.Contains("hevc")?24:23,Speed="balanced",Width=mode.Contains("hevc")?0:1280,Height=mode.Contains("hevc")?0:720,Deinterlace=mode.Contains("hevc")?Deinterlace.Bwdif:Deinterlace.Yadif,CopyAudio=mode.Contains("hevc")};
   if(args.Contains("--delogo"))preset.RemoveLogo=true;
   if(args.Contains("--sub-raw")){preset.Container=Container.mkv;preset.KeepSubtitles=true;preset.SubtitleMode=SubtitleMode.AribRaw;}
+  if(args.Contains("--yadif"))preset.Deinterlace=Deinterlace.Yadif;
   if(args.Contains("--cpu")){preset.Engine=Engine.CPU;preset.Speed="medium";}
   if(args.Contains("--logo"))settings.CmLogo=Option(args,"--logo");
-  if(args.Contains("--delogo")){var s0=Integration.LoadSettings(Path.Combine(Environment.GetEnvironmentVariable("LOCALAPPDATA"),"TS-Encode-Flow"));settings.DelogoPlugin=s0.DelogoPlugin;settings.Avs2PipeMod=s0.Avs2PipeMod;settings.ChapterExe=s0.ChapterExe;settings.LogoFrame=s0.LogoFrame;}
+  if(args.Contains("--delogo")){var s0=Integration.LoadSettings(Path.Combine(Environment.GetEnvironmentVariable("LOCALAPPDATA"),"TS-Encode-Flow"));settings.DelogoPlugin=s0.DelogoPlugin;settings.ChapterExe=s0.ChapterExe;settings.LogoFrame=s0.LogoFrame;}
   if(args.Contains("--advanced")){preset.PipeGpu=true;preset.ResumeChunks=true;preset.AllAudio=true;preset.AutoInverseTelecine=true;}
   var j=new Job {Input=input,Preset=preset,OutputFolder=folder,FileName="{OriginalName}",State=State.Running,LogFile=Path.Combine(folder,"Data","Logs","encode.log")};Directory.CreateDirectory(Path.GetDirectoryName(j.LogFile));
   DateTime next=DateTime.MinValue;object gate=new object();Action<string> log=line=>{lock(gate){File.AppendAllText(j.LogFile,line+Environment.NewLine);if(DateTime.UtcNow>next){Console.WriteLine(DateTime.Now.ToString("HH:mm:ss")+" "+mode+" "+j.Message+" "+j.Progress.ToString("0.0")+"%");next=DateTime.UtcNow.AddSeconds(20);}}};

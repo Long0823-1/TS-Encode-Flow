@@ -25,11 +25,6 @@ namespace TsEncodeFlow {
   public static Metadata VideoOnly(Metadata source) {
    var m=Store.Clone(source);m.VideoIndex=0;m.AudioIndex=-1;return m;
   }
-  // avs2pipemod の y4m モードと SAR 指定。フィールド順は ffprobe 由来の表記に合わせる。
-  public static string PipeMode(Metadata m) {
-   string mode=m.FieldOrder=="bb"||m.FieldOrder=="bt"?"-y4mb":m.FieldOrder=="progressive"?"-y4mp":"-y4mt";
-   return mode+"="+Sar(m.Sar);
-  }
   static string Sar(double sar) {
    if(!double.IsFinite(sar)||sar<=0)return "1:1";
    for(int den=1;den<=1000;den++){int num=(int)Math.Round(sar*den);if(num>0&&Math.Abs(num/(double)den-sar)<0.0005)return num.ToString(CultureInfo.InvariantCulture)+":"+den.ToString(CultureInfo.InvariantCulture);}
@@ -185,8 +180,7 @@ namespace TsEncodeFlow {
     using var lease=await CmIndex.Lock(job.MediaInput,token);
     bool hadIndex=File.Exists(sharedIndex);if(hadIndex)File.Move(sharedIndex,backup);
     try {
-     // avs2pipemod 1.3.1 aborts (0xC0000409 in ucrtbase) on every script on current Windows,
-     // so the AviSynth script is opened with FFmpeg's built-in AviSynth demuxer instead.
+     // The AviSynth script is opened with FFmpeg's built-in AviSynth demuxer.
      var info=await Processes.Run(settings.Ffmpeg,new[]{"-hide_banner","-nostdin","-v","error","-i",probeScript,"-frames:v","1","-f","null","-"},token,log,0,runtime);
      if(info.ExitCode!=0) {
       string detail=(string.IsNullOrWhiteSpace(info.Error)?info.Output:info.Error);
@@ -216,8 +210,9 @@ namespace TsEncodeFlow {
    string pending=output+".partial.mkv";
    try {
     var m=job.Metadata;
-    var args=new List<string>{"-hide_banner","-nostdin","-y","-i",script,"-an","-vf","setsar="+Sar(m.Sar).Replace(':','/')};
-    if(m.FieldOrder!="progressive"){args.Add("-field_order");args.Add(m.FieldOrder=="bb"||m.FieldOrder=="bt"?"bb":"tt");}
+    // AviSynth frames carry no interlace flag: set it again so later deinterlacers (yadif/bwdif "auto") see interlaced frames.
+    string field=m.FieldOrder=="progressive"?"":"setfield="+(m.FieldOrder=="bb"||m.FieldOrder=="bt"?"bff":"tff")+",";
+    var args=new List<string>{"-hide_banner","-nostdin","-y","-i",script,"-an","-vf",field+"setsar="+Sar(m.Sar).Replace(':','/')};
     args.AddRange(new[]{"-c:v","ffv1","-level","3",pending});
     log(Processes.Quote(settings.Ffmpeg)+" "+string.Join(" ",args.Select(Processes.Quote)));
     var run=await Processes.Run(settings.Ffmpeg,args,token,log,0,runtime);

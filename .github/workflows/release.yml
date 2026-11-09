@@ -2,9 +2,17 @@ name: Build and Release
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      stable:
+        description: 'Publish as a STABLE release (default: prerelease). Only when the user explicitly asks for a formal release.'
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: write
@@ -61,4 +69,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag = if ($env:GITHUB_REF -like 'refs/tags/*') { $env:GITHUB_REF_NAME } else { 'v' + $env:VERSION }
-          gh release create $tag "${{ env.ZIP }}" --title "TS-Encode-Flow $tag" --generate-notes --prerelease
+          $stable = ($env:GITHUB_EVENT_NAME -eq 'push' -and $env:GITHUB_REF -like 'refs/tags/v*') -or '${{ inputs.stable }}' -eq 'true'
+          if ($stable) { gh release create $tag "${{ env.ZIP }}" --title "TS-Encode-Flow $tag" --generate-notes --latest }
+          else { gh release create $tag "${{ env.ZIP }}" --title "TS-Encode-Flow $tag" --generate-notes --prerelease }

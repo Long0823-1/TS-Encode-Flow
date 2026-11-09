@@ -20,6 +20,7 @@ namespace TsEncodeFlow {
   public const string ApiUrl="https://api.github.com/repos/Long0823-1/TS-Encode-Flow/releases/latest";
   public const string ListUrl="https://api.github.com/repos/Long0823-1/TS-Encode-Flow/releases?per_page=30";
   public const string ZipName="TS-Encode-Flow-win-x64.zip";
+  public static bool IsAppZip(string name)=>name!=null&&name.StartsWith("TS-Encode-Flow-",StringComparison.Ordinal)&&name.EndsWith("-win-x64.zip",StringComparison.Ordinal);
   // Semantic versions only (vX.Y.Z / X.Y.Z). Date-style CI tags (v2026.11.09.2)
   // and suffixed tags never take part in update resolution.
   public static bool TryVersion(string tag,out Version version) {
@@ -51,7 +52,7 @@ namespace TsEncodeFlow {
     string zipUrl="",digest="";
     if(release.TryGetProperty("assets",out var assets)&&assets.ValueKind==JsonValueKind.Array) {
      foreach(var asset in assets.EnumerateArray()) {
-      if(asset.TryGetProperty("name",out var name)&&name.GetString()==ZipName) {
+      if(asset.TryGetProperty("name",out var name)&&IsAppZip(name.GetString())) {
        zipUrl=asset.TryGetProperty("browser_download_url",out var url)?url.GetString()??"":"";
        digest=asset.TryGetProperty("digest",out var d)?d.GetString()??"":"";
       }

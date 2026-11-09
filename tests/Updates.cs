@@ -26,7 +26,7 @@ static partial class Tests {
  }
  static async Task UpdateTests() {
   using var handler=new ReleaseHandler();using var http=new HttpClient(handler);
-  string Asset(string version,string digest="")=>"{\"name\":\""+Updates.ZipName+"\",\"browser_download_url\":\"https://github.com/Long0823-1/TS-Encode-Flow/releases/download/v"+version+"/"+Updates.ZipName+"\",\"digest\":\""+digest+"\"}";
+  string Asset(string version,string digest="")=>"{\"name\":\"TS-Encode-Flow-"+version+"-win-x64.zip"+"\",\"browser_download_url\":\"https://github.com/Long0823-1/TS-Encode-Flow/releases/download/v"+version+"/TS-Encode-Flow-"+version+"-win-x64.zip"+"\",\"digest\":\""+digest+"\"}";
   string Release(string tag,bool draft=false,bool prerelease=false,string published="2026-01-01T00:00:00Z",string assets=null)=>"{\"tag_name\":\""+tag+"\",\"draft\":"+draft.ToString().ToLowerInvariant()+",\"prerelease\":"+prerelease.ToString().ToLowerInvariant()+",\"published_at\":\""+published+"\",\"assets\":["+(assets??Asset(tag.TrimStart('v')))+"]}";
   string List(params string[] items)=>"["+string.Join(",",items)+"]";
   handler.Body=List(Release("v0.2.5"));var result=await Updates.Check(http,new Version(0,2,4,0));
@@ -51,8 +51,9 @@ static partial class Tests {
   // PickLatest details: digest passthrough and asset selection.
   using var doc=JsonDocument.Parse(List(Release("v0.2.7",assets:Asset("0.2.7","sha256:abc123"))));
   var picked=Updates.PickLatest(doc.RootElement);
-  Check(picked!=null&&picked.Tag=="v0.2.7"&&picked.Digest=="sha256:abc123"&&picked.ZipUrl.EndsWith(Updates.ZipName),"pick latest returns the zip asset and its digest");
+  Check(picked!=null&&picked.Tag=="v0.2.7"&&picked.Digest=="sha256:abc123"&&picked.ZipUrl.EndsWith("-win-x64.zip"),"pick latest returns the zip asset and its digest");
   Check(Updates.TryVersion("v0.6.8",out var parsed)&&parsed==new Version(0,6,8),"version tags parse");
+  Check(Updates.IsAppZip("TS-Encode-Flow-0.6.9-win-x64.zip")&&Updates.IsAppZip("TS-Encode-Flow-v0.6.7-windows-x64.zip")==false&&!Updates.IsAppZip("TS-Encode-Flow-0.6.9-source.zip"),"app zip asset pattern matches workflow naming only");
   Check(!Updates.TryVersion("v0.6.8-beta",out _),"suffixed tags rejected");
  }
 }

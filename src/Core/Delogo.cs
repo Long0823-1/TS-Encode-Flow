@@ -200,8 +200,14 @@ namespace TsEncodeFlow {
    File.WriteAllText(script,Script(runtimeLsmash,runtimePlugin,privateIndex,nativeVideo,logo,job.Metadata.Fps,segments,trimFrames),encoding);
    string pending=output+".partial.mkv";
    try {
-    var producer=new Command {Exe=hostExe,Args=new List<string>{PipeMode(job.Metadata),"-dll="+Path.Combine(runtime,"AviSynth.dll"),script}};
-    var consumer=new Command {Exe=settings.Ffmpeg,Args=new List<string>{"-hide_banner","-nostdin","-y","-f","yuv4mpegpipe","-i","-","-an","-c:v","ffv1","-level","3",pending}};
+    var producer=new Command {Exe=hostExe,Args=new List<string>{"-rawvideo","-dll="+Path.Combine(runtime,"AviSynth.dll"),script}};
+    // Feed FFmpeg rawvideo with explicit geometry instead of yuv4mpegpipe:
+    // ffmpeg's y4m demuxer rejects avs2pipemod's stream when the script's
+    // fps rational makes the header exceed the demuxer's limit ("Header too
+    // large", seen on a real 30000/1001 recording). The script always ends
+    // in YV12 (DelogoHD output) at Metadata geometry/fps, so raw is exact.
+    string fpsText=job.Metadata.Fps.ToString("R",CultureInfo.InvariantCulture);
+    var consumer=new Command {Exe=settings.Ffmpeg,Args=new List<string>{"-hide_banner","-nostdin","-y","-f","rawvideo","-pix_fmt","yuv420p","-s",N(job.Metadata.Width)+"x"+N(job.Metadata.Height),"-r",fpsText,"-i","-","-an","-c:v","ffv1","-level","3",pending}};
     log(producer+" | "+consumer);
     await PipeEncoding.Run(producer,consumer,token,log,"avs2pipemod","FFmpeg");
     token.ThrowIfCancellationRequested();

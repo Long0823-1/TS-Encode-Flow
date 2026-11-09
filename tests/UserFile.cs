@@ -17,6 +17,12 @@ static partial class Tests {
   if(args.Contains("--cpu")){preset.Engine=Engine.CPU;preset.Speed="medium";}
   if(args.Contains("--logo"))settings.CmLogo=Option(args,"--logo");
   if(args.Contains("--delogo")){var s0=Integration.LoadSettings(Path.Combine(Environment.GetEnvironmentVariable("LOCALAPPDATA"),"TS-Encode-Flow"));settings.DelogoPlugin=s0.DelogoPlugin;settings.ChapterExe=s0.ChapterExe;settings.LogoFrame=s0.LogoFrame;}
+  if(args.Contains("--saved-preset")){
+   // Run with the user's real saved settings + the named preset from the app data folder.
+   var saved=Integration.LoadSettings(Path.Combine(Environment.GetEnvironmentVariable("LOCALAPPDATA"),"TS-Encode-Flow"));
+   preset=saved.Presets.First(p=>p.Name==Option(args,"--saved-preset"));
+   string logo=settings.CmLogo;settings=saved;settings.OutputFolder=folder;settings.EncodeCacheFolder=Path.Combine(folder,"cache");settings.CmLogo=logo??"";settings.WatchEnabled=false;
+  }
   if(args.Contains("--advanced")){preset.PipeGpu=true;preset.ResumeChunks=true;preset.AllAudio=true;preset.AutoInverseTelecine=true;}
   var j=new Job {Input=input,Preset=preset,OutputFolder=folder,FileName="{OriginalName}",State=State.Running,LogFile=Path.Combine(folder,"Data","Logs","encode.log")};Directory.CreateDirectory(Path.GetDirectoryName(j.LogFile));
   DateTime next=DateTime.MinValue;object gate=new object();Action<string> log=line=>{lock(gate){File.AppendAllText(j.LogFile,line+Environment.NewLine);if(DateTime.UtcNow>next){Console.WriteLine(DateTime.Now.ToString("HH:mm:ss")+" "+mode+" "+j.Message+" "+j.Progress.ToString("0.0")+"%");next=DateTime.UtcNow.AddSeconds(20);}}};

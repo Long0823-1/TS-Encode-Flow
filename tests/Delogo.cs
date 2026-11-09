@@ -14,6 +14,7 @@ static partial class Tests {
   Check(script.Contains("LWLibavVideoSource(\"C:/work/delogo-index.lwi\",stream_index=2,threads=4,repeat=false)"),"delogo script opens the mapped L-SMASH stream of the private index");
   Check(script.Contains("v=v.DelogoHD(logofile=\"C:/data/Logos/1-2-3-1920x1080-v0001.lgd\")"),"delogo script applies DelogoHD with the station LGD");
   Check(script.Contains("v.AssumeFPS(30000,1001)"),"delogo script pins CFR fps as a reduced rational (y4m header stays small)");
+  Check(Delogo.FpsRational(30000.0/1001)==(30000,1001)&&Delogo.FpsRational(24000.0/1001)==(24000,1001)&&Delogo.FpsRational(60000.0/1001)==(60000,1001)&&Delogo.FpsRational(30)==(30,1)&&Delogo.FpsRational(25)==(25,1),"NTSC and integer frame rates map to exact rationals (29.97 must not become 2997/100)");
   Reject(()=>Delogo.Script("bad\"path.dll","x.dll","s",-1,"l",30),"delogo script rejects quote in path");
   // Segment scripts chain one DelogoHD call per detected display segment, with fades.
   string segmented=Delogo.Script("a.dll","b.dll","idx.lwi",-1,"logo.lgd",30000.0/1001,new List<LogoSegment>{new LogoSegment{Start=100,End=200,FadeIn=15,FadeOut=0},new LogoSegment{Start=500,End=900,FadeIn=0,FadeOut=30}});

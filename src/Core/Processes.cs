@@ -43,14 +43,15 @@ namespace TsEncodeFlow {
    }
    if(quoted)throw new ArgumentException("追加引数の引用符が閉じていません。");if(started)args.Add(b.ToString());return args;
   }
-  public static async Task<ProcessResult> Run(string exe,IEnumerable<string> args,CancellationToken cancellation,Action<string> log=null,int timeoutSeconds=0) {
+  public static async Task<ProcessResult> Run(string exe,IEnumerable<string> args,CancellationToken cancellation,Action<string> log=null,int timeoutSeconds=0,string workingDirectory=null) {
    if(!File.Exists(exe))throw new FileNotFoundException("ツールが見つかりません。設定タブでパスを指定してください。",exe);
-   using(var p=new Process {StartInfo=new ProcessStartInfo(exe,string.Join(" ",System.Linq.Enumerable.Select(args,Quote))) {UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true,StandardOutputEncoding=Encoding.UTF8,StandardErrorEncoding=Encoding.UTF8,WorkingDirectory=Path.GetDirectoryName(exe)}})
+   using(var p=new Process {StartInfo=new ProcessStartInfo(exe,string.Join(" ",System.Linq.Enumerable.Select(args,Quote))) {UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true,StandardOutputEncoding=Encoding.UTF8,StandardErrorEncoding=Encoding.UTF8,WorkingDirectory=workingDirectory??Path.GetDirectoryName(exe)}})
    using(var job=new ChildJob())using(var timeout=new CancellationTokenSource())using(var linked=CancellationTokenSource.CreateLinkedTokenSource(cancellation,timeout.Token)) {
     if(timeoutSeconds>0)timeout.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
     var output=new StringBuilder();var error=new StringBuilder();object sync=new object();
     p.OutputDataReceived+=(s,e)=>{if(e.Data==null)return;lock(sync){if(output.Length<8*1024*1024)output.AppendLine(e.Data);log?.Invoke(e.Data);}};
     p.ErrorDataReceived+=(s,e)=>{if(e.Data==null)return;lock(sync){if(error.Length<2*1024*1024)error.AppendLine(e.Data);log?.Invoke(e.Data);}};
+    if(workingDirectory!=null)p.StartInfo.EnvironmentVariables["PATH"]=workingDirectory+Path.PathSeparator+(p.StartInfo.EnvironmentVariables["PATH"]??"");
     p.Start();job.Assign(p);p.BeginOutputReadLine();p.BeginErrorReadLine();
     using(linked.Token.Register(()=>{job.Kill();try{if(!p.HasExited)p.Kill();}catch(InvalidOperationException){}}))await Task.Run(()=>p.WaitForExit());
     cancellation.ThrowIfCancellationRequested();if(timeout.IsCancellationRequested)throw new TimeoutException(Path.GetFileName(exe)+"がタイムアウトしました。");

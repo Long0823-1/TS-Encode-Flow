@@ -36,6 +36,17 @@ namespace TsEncodeFlow {
    return "1:1";
   }
   static string N(int n)=>n.ToString(CultureInfo.InvariantCulture);
+  // フレームレートを小さな分数へ。29.97は30000/1001（2997/100は30分で約0.2秒ずれる）。
+  public static (int Num,int Den) FpsRational(double fps) {
+   if(!double.IsFinite(fps)||fps<=0)return (30000,1001);
+   foreach(int den in new[]{1,1001}) {
+    int num=(int)Math.Round(fps*den);
+    if(num>0&&Math.Abs(num/(double)den-fps)<fps*2e-5)return (num,den);
+   }
+   int bestNum=(int)Math.Round(fps*1000),bestDen=1000;
+   for(int den=1;den<=1001;den++){int num=(int)Math.Round(fps*den);if(num>0&&Math.Abs(num/(double)den-fps)<fps*2e-5){bestNum=num;bestDen=den;break;}}
+   int g=Gcd(bestNum,bestDen);return (bestNum/g,bestDen/g);
+  }
   static int Gcd(int a,int b){a=Math.Abs(a);b=Math.Abs(b);while(b!=0){int t=a%b;a=b;b=t;}return a==0?1:a;}
   // segments: ロゴ表示区間（フレーム番号）。null/空なら全編に一様適用。
   // keep: CMカット保持区間（フレーム番号・終了含む）。nullならカットなし。
@@ -55,7 +66,7 @@ namespace TsEncodeFlow {
    }
    // Reduce the fps rational (30000/1001, not 29970030/1000000): consumers of
    // the y4m header (ffmpeg's demuxer) reject oversized header lines.
-   int fpsNum=(int)Math.Round(fps*1000),fpsDen=1000,g=Gcd(fpsNum,fpsDen);fpsNum/=g;fpsDen/=g;
+   var (fpsNum,fpsDen)=FpsRational(fps);
    b.Append("v.AssumeFPS("+N(fpsNum)+","+N(fpsDen)+")\n");
    return b.ToString();
   }
@@ -127,9 +138,8 @@ namespace TsEncodeFlow {
   static string ResolveLogoPath(Job job,Settings settings,string data)=>!string.IsNullOrWhiteSpace(settings.CmLogo)?settings.CmLogo:StationLogos.Find(data,job);
   public static async Task<string> Prepare(Job job,Settings settings,string data,CancellationToken token,Action<string> log,Action changed) {
    string logo=ResolveLogo(data,job,settings);
-   string plugin=settings.DelogoPlugin,host=settings.Avs2PipeMod;
+   string plugin=settings.DelogoPlugin;
    if(!File.Exists(plugin))throw new FileNotFoundException("DelogoHDプラグインがありません。ツール設定で「ロゴ消し · DelogoHD」をダウンロードして適用してください。",plugin);
-   if(!File.Exists(host))throw new FileNotFoundException("avs2pipemodがありません。ツール設定で「ロゴ消し · avs2pipemod」をダウンロードして適用してください。",host);
    string bin=string.IsNullOrWhiteSpace(settings.ChapterExe)?"":Path.GetDirectoryName(settings.ChapterExe);
    string lsmash=bin==""?"":Path.Combine(bin,"plugins64","LSMASHSource.dll"),avisynth=bin==""?"":Path.Combine(bin,"AviSynth.dll");
    if(lsmash==""||!File.Exists(lsmash)||!File.Exists(avisynth))throw new FileNotFoundException("CM解析用のAviSynth／L-SMASHがありません。ツール設定でCM解析コンポーネントをダウンロードして適用してください。",lsmash);
@@ -138,7 +148,7 @@ namespace TsEncodeFlow {
    var keepRanges=Commercials.Keep(job);
    string folder=EncodeCache.WorkFolder(data,settings,job);
    string output=Path.Combine(folder,"delogo-video.mkv"),receiptFile=output+".json";
-   string key=sourceFingerprint+"|delogo-v2|"+Store.Fingerprint(logo)+"|"+Store.Fingerprint(plugin)+"|"+Store.Fingerprint(host)+"|"+Store.Fingerprint(lsmash)+"|"+Store.Json.Serialize(trimFrames);
+   string key=sourceFingerprint+"|delogo-v3-ffmpeg|"+Store.Fingerprint(logo)+"|"+Store.Fingerprint(plugin)+"|"+Store.Fingerprint(lsmash)+"|"+Store.Json.Serialize(trimFrames);
    var receipt=Store.Load(receiptFile,()=>new DelogoReceipt());
    double expectedDuration=trimFrames!=null?keepRanges.Sum(r=>r.End-r.Start):job.Metadata.Duration;
    if(File.Exists(output)&&receipt.Source==key&&receipt.Output==Store.Fingerprint(output)) {
@@ -147,7 +157,6 @@ namespace TsEncodeFlow {
    job.Message="透過ロゴを除去中（AviSynth + DelogoHD）";changed();
    // Private AviSynth runtime: host exe + runtime + plugins in one folder, like logoframe.
    string runtime=Path.Combine(folder,"delogo-runtime");Directory.CreateDirectory(runtime);
-   string hostExe=Path.Combine(runtime,Path.GetFileName(host));File.Copy(host,hostExe,true);
    foreach(string dll in new[]{"AviSynth.dll","vcruntime140.dll","msvcp140.dll"}){string source=Path.Combine(bin,dll);if(File.Exists(source))File.Copy(source,Path.Combine(runtime,dll),true);}
    string runtimeLsmash=Path.Combine(runtime,"LSMASHSource.dll"),runtimePlugin=Path.Combine(runtime,"DelogoHD.dll");
    File.Copy(lsmash,runtimeLsmash,true);File.Copy(plugin,runtimePlugin,true);
@@ -176,11 +185,13 @@ namespace TsEncodeFlow {
     using var lease=await CmIndex.Lock(job.MediaInput,token);
     bool hadIndex=File.Exists(sharedIndex);if(hadIndex)File.Move(sharedIndex,backup);
     try {
-     var info=await Processes.Run(hostExe,new[]{"-info",probeScript},token,log);
+     // avs2pipemod 1.3.1 aborts (0xC0000409 in ucrtbase) on every script on current Windows,
+     // so the AviSynth script is opened with FFmpeg's built-in AviSynth demuxer instead.
+     var info=await Processes.Run(settings.Ffmpeg,new[]{"-hide_banner","-nostdin","-v","error","-i",probeScript,"-frames:v","1","-f","null","-"},token,log,0,runtime);
      if(info.ExitCode!=0) {
       string detail=(string.IsNullOrWhiteSpace(info.Error)?info.Output:info.Error);
       string tail=string.IsNullOrWhiteSpace(detail)?"(出力なし)":Converter.Tail(detail.Trim());
-      throw new InvalidDataException("ロゴ消し用インデックスを作成できません（avs2pipemod 終了コード "+info.ExitCode+"）："+tail);
+      throw new InvalidDataException("ロゴ消し用インデックスを作成できません（FFmpeg 終了コード "+info.ExitCode+"）："+tail);
      }
      if(!File.Exists(sharedIndex))throw new InvalidDataException("ロゴ消し用インデックスを作成できません。入力フォルダーの書き込み権限を確認してください。");
      File.Copy(sharedIndex,privateIndex,true);
@@ -204,14 +215,13 @@ namespace TsEncodeFlow {
    File.WriteAllText(script,Script(runtimeLsmash,runtimePlugin,privateIndex,nativeVideo,logo,job.Metadata.Fps,segments,trimFrames),encoding);
    string pending=output+".partial.mkv";
    try {
-    // y4m pipe, the transport proven by logoframe/CM on real material.
-    // (A rawvideo attempt crashed avs2pipemod before frame 0 on a real
-    // interlaced recording — its raw path lacks the y4m field correction —
-    // while the plain-LWLibav scan script, no ConvertToYV12, works in y4m.)
-    var producer=new Command {Exe=hostExe,Args=new List<string>{PipeMode(job.Metadata),"-dll="+Path.Combine(runtime,"AviSynth.dll"),script}};
-    var consumer=new Command {Exe=settings.Ffmpeg,Args=new List<string>{"-hide_banner","-nostdin","-y","-f","yuv4mpegpipe","-i","-","-an","-c:v","ffv1","-level","3",pending}};
-    log(producer+" | "+consumer);
-    await PipeEncoding.Run(producer,consumer,token,log,"avs2pipemod","FFmpeg");
+    var m=job.Metadata;
+    var args=new List<string>{"-hide_banner","-nostdin","-y","-i",script,"-an","-vf","setsar="+Sar(m.Sar).Replace(':','/')};
+    if(m.FieldOrder!="progressive"){args.Add("-field_order");args.Add(m.FieldOrder=="bb"||m.FieldOrder=="bt"?"bb":"tt");}
+    args.AddRange(new[]{"-c:v","ffv1","-level","3",pending});
+    log(Processes.Quote(settings.Ffmpeg)+" "+string.Join(" ",args.Select(Processes.Quote)));
+    var run=await Processes.Run(settings.Ffmpeg,args,token,log,0,runtime);
+    if(run.ExitCode!=0)throw new InvalidDataException("ロゴ消しの映像出力に失敗しました（FFmpeg 終了コード "+run.ExitCode+"）："+Converter.Tail((string.IsNullOrWhiteSpace(run.Error)?run.Output:run.Error).Trim()));
     token.ThrowIfCancellationRequested();
     if(Store.Fingerprint(job.MediaInput)!=sourceFingerprint)throw new IOException("ロゴ消し中に入力ファイルが更新されました。");
     await ValidateIntermediate(settings,pending,job.Metadata,expectedDuration,token);

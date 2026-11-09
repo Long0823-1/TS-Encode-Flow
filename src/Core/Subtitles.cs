@@ -58,7 +58,7 @@ namespace TsEncodeFlow {
    // 「両方」のときは変換字幕も作るので、このまま通常経路へ進む（生字幕は Pack が追加で格納する）。
    if(RawArib(j)) {
     var probe=await Processes.Run(s.Ffprobe,new[]{"-v","error","-select_streams",j.Metadata.SubtitleIndex.ToString(),"-count_packets","-show_entries","stream=nb_read_packets","-of","csv=p=0",j.MediaInput},token,null,60);
-    long packets=probe.ExitCode==0&&long.TryParse(probe.Output.Trim(),out long n)?n:0;
+    long packets=0;if(probe.ExitCode==0)foreach(string line in probe.Output.Split((char)10)){if(long.TryParse(line.Trim(),out long n)){packets=n;break;}} // ffprobe n9.0 prints the stream section twice
     j.Metadata.SubtitlePackets=packets;j.Metadata.SubtitleStatus=packets>0?"ARIB字幕をそのままMKVに格納":"字幕の実データなし";
     log(packets>0?"ARIB字幕を変換せず、そのままMKV（S_ARIBSUB）に格納します。":"ARIB字幕トラックに実データがありません。");
     return packets>0?"arib-raw":null;

@@ -14,18 +14,19 @@ sealed class MainPage:ContentPage {
  readonly ContentView updateBanner=new(){IsVisible=false};
  static readonly System.Net.Http.HttpClient updateHttp=new();
  bool updateChecking,updateStarted;
- bool updateArmed;
+ bool updateArmed,updateDownloading;
  // When an update is staged and no conversion is running, arm the swap and
  // close the GUI: App startup then applies it and relaunches automatically.
  void MaybeAutoApply() {
   try {
    var state=SelfUpdate.Read(client.Data);
-   if(state.Phase!="staged")return;
+   if((state.Phase!="staged"&&state.Phase!="armed")||!updateArmed)return;
    client.Refresh();
    if(client.Status.Active>0||client.Jobs.Any(j=>j.State==State.Running))return;
-   state.Phase="armed";SelfUpdate.Write(client.Data,state);updateArmed=true;
+   state.Phase="armed";SelfUpdate.Write(client.Data,state);
    updateText.Text=state.Tag+" へ更新します。アプリを再起動しています…";updateBanner.IsVisible=true;
-   Dispatcher.DispatchDelayed(TimeSpan.FromSeconds(3),()=>Application.Current?.Quit());
+   if(SelfUpdate.ApplyPending(client.Data,AppContext.BaseDirectory,typeof(MainPage).Assembly.GetName().Version))Application.Current?.Quit();
+   else {updateArmed=false;updateText.Text=SelfUpdate.Read(client.Data).Error;}
   }catch{/* update arming must never break the GUI */}
  }
  async Task<string> CheckUpdates() {
@@ -34,9 +35,19 @@ sealed class MainPage:ContentPage {
   try {
    var version=typeof(MainPage).Assembly.GetName().Version??new Version(0,0,0);
    var result=await Updates.Check(updateHttp,version);
-   if(result.Available){updateText.Text=result.Message;updateBanner.IsVisible=true;MaybeAutoApply();}
+   var previous=SelfUpdate.Read(client.Data);
+   if(result.Available){updateText.Text=(previous.Phase=="error"?"前回の更新："+previous.Error+"\n":"")+result.Message;updateBanner.IsVisible=true;}
    return result.Message;
   }finally{updateChecking=false;}
+ }
+ async Task InstallUpdate() {
+  if(updateDownloading)return;
+  updateDownloading=true;updateBanner.IsVisible=true;
+  try {
+   var state=await SelfUpdate.DownloadLatest(client.Data,typeof(MainPage).Assembly.GetName().Version??new Version(0,0,0),CancellationToken.None,message=>Dispatcher.Dispatch(()=>updateText.Text=message));
+   if(state.Phase!="staged"){updateText.Text=state.Error;return;}
+   state.Phase="armed";SelfUpdate.Write(client.Data,state);updateArmed=true;updateText.Text=state.Tag+" の準備ができました。実行中の変換が終わったら更新・再起動します。";MaybeAutoApply();
+  }catch(Exception e){updateText.Text="更新できませんでした："+e.Message;}finally{updateDownloading=false;}
  }
  public MainPage() {
   try{client=new EngineClient();}catch(Exception e){Content=Pixel.Stack(Pixel.Text("設定を読み込めませんでした",24),Pixel.Text(e.Message));return;}
@@ -48,9 +59,9 @@ sealed class MainPage:ContentPage {
   foreach(var item in new[]{("ダッシュボード","◉"),("変換キュー","☷"),("プリセット","◈"),("字幕・DRCS","文"),("CM・タイムリスト","▥"),("放送局ロゴ","▣"),("自動化","↻"),("解析・比較","◫"),("設定","⚙")}) {
    string name=item.Item1;var button=Pixel.Button(item.Item2+"   "+name,()=>Navigate(name));button.HorizontalOptions=LayoutOptions.Fill;button.Padding=new Thickness(18,14);nav[name]=button;links.Children.Add(button);
   }
-  rail.Add(links,0,1);rail.Add(Pixel.Stack(Pixel.Text("元のTSはそのまま",13,Pixel.Muted,true),Pixel.Text("0.6.14 · .NET MAUI",12,Pixel.Muted),Pixel.Button("Ko-fiで開発を応援",()=>Pickers.Open("https://ko-fi.com/long0823"))),0,2);root.Add(rail,0,0);
+  rail.Add(links,0,1);rail.Add(Pixel.Stack(Pixel.Text("元のTSはそのまま",13,Pixel.Muted,true),Pixel.Text("0.6.15 · .NET MAUI",12,Pixel.Muted),Pixel.Button("Ko-fiで開発を応援",()=>Pickers.Open("https://ko-fi.com/long0823"))),0,2);root.Add(rail,0,0);
   var main=new Grid {RowDefinitions=new RowDefinitionCollection {new(88),new(GridLength.Auto),new(GridLength.Star),new(34)},RowSpacing=12};
-  var heading=new Grid {ColumnDefinitions=new ColumnDefinitionCollection {new(GridLength.Star),new(GridLength.Auto)}};heading.Add(Pixel.Stack(title,subtitle),0,0);heading.Add(Pixel.Button("＋ TSを追加",AddFiles,true),1,0);main.Add(heading,0,0);updateBanner.Content=Pixel.Card(Pixel.Stack(updateText,Pixel.Button("今すぐ更新する",()=>{var state=SelfUpdate.Read(client.Data);if(state.Phase=="staged"){MaybeAutoApply();if(!updateArmed)Notice("変換が終わってから自動で更新します。");}else Pickers.Open(Updates.ReleasesUrl);},true)),Pixel.Tint,16);main.Add(updateBanner,0,1);main.Add(body,0,2);main.Add(toast,0,3);root.Add(main,1,0);Content=root;
+  var heading=new Grid {ColumnDefinitions=new ColumnDefinitionCollection {new(GridLength.Star),new(GridLength.Auto)}};heading.Add(Pixel.Stack(title,subtitle),0,0);heading.Add(Pixel.Button("＋ TSを追加",AddFiles,true),1,0);main.Add(heading,0,0);updateBanner.Content=Pixel.Card(Pixel.Stack(updateText,Pixel.Button("ダウンロードして更新",InstallUpdate,true)),Pixel.Tint,16);main.Add(updateBanner,0,1);main.Add(body,0,2);main.Add(toast,0,3);root.Add(main,1,0);Content=root;
   var launchArgs=Environment.GetCommandLineArgs();int pageIndex=Array.IndexOf(launchArgs,"--page");Navigate(pageIndex>=0&&pageIndex+1<launchArgs.Length&&nav.ContainsKey(launchArgs[pageIndex+1])?launchArgs[pageIndex+1]:section);
   Dispatcher.StartTimer(TimeSpan.FromSeconds(1),()=>{Refresh();return true;});
     Loaded+=async(s,e)=>{Refresh();if(!updateStarted){updateStarted=true;client.Wake();await CheckUpdates();}};
@@ -100,8 +111,9 @@ sealed class MainPage:ContentPage {
    if(healthButton!=null)healthButton.Text=logoPending>0?"放送局ロゴを設定":cmPending>0?"CM・タイムリストを確認":drcsPending>0?"字幕・DRCSを確認":"ツールの設定を開く";
    var ids=client.Jobs.Select(j=>j.Id).ToHashSet();foreach(var stale in rows.Where(r=>!ids.Contains(r.Id)).ToList())rows.Remove(stale);
    var ordered=QueueOrder.Display(client.Jobs);for(int i=0;i<ordered.Count;i++){var j=ordered[i];var row=rows.FirstOrDefault(x=>x.Id==j.Id);if(row==null)rows.Insert(i,new JobRow(j));else{row.Update(j);int current=rows.IndexOf(row);if(current!=i)rows.Move(current,i);}}
-   if(!client.WorkerAlive&&!client.Status.Paused&&(client.Settings.WatchEnabled||client.Jobs.Any(j=>j.State==State.Waiting))&&(DateTime.UtcNow-lastWake).TotalSeconds>8){lastWake=DateTime.UtcNow;client.Wake();}
+   if(!updateArmed&&!client.WorkerAlive&&!client.Status.Paused&&(client.Settings.WatchEnabled||client.Jobs.Any(j=>j.State==State.Waiting))&&(DateTime.UtcNow-lastWake).TotalSeconds>8){lastWake=DateTime.UtcNow;client.Wake();}
    if(!string.IsNullOrEmpty(client.Status.Message))toast.Text=client.Status.Message;
+   if(updateArmed)MaybeAutoApply();
   }catch(Exception ex){toast.Text=ex.Message;}finally{refreshing=false;}
  }
 }

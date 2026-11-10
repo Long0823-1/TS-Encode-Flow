@@ -7,7 +7,15 @@ using System.Text;
 
 namespace TsEncodeFlow {
  public sealed class WorkerStatus {public bool Running,Paused;public int Pid,Active;public DateTime Updated;public string Message="";}
- public sealed class BatchProfile {public Preset Preset;public string OutputFolder,FileName;}
+ public sealed class BatchProfile {
+  public Preset Preset;public string OutputFolder,FileName;
+  public void Validate() {
+   if(Preset==null)throw new InvalidDataException("BAT用プリセットが空です。自動化画面からBATを作成し直してください。");
+   Commands.Validate(Preset);
+   if(string.IsNullOrWhiteSpace(OutputFolder)||!Path.IsPathFullyQualified(OutputFolder)||string.IsNullOrWhiteSpace(FileName))throw new InvalidDataException("BAT用の保存先・ファイル名が不正です。BATを作成し直してください。");
+   NameConditions.Validate(FileName);
+  }
+ }
  public static class Integration {
   public static string DataFolder=>Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"TS-Encode-Flow");
   public static string WorkerExe(string appFolder)=>Path.Combine(appFolder,"Worker","TS-Encode-Worker.exe");
@@ -27,7 +35,8 @@ namespace TsEncodeFlow {
   }
   public static void SaveBat(string file,string worker,string data)=>File.WriteAllText(file,Bat(worker,data),new UTF8Encoding(false));
   public static void SaveBat(string file,string worker,string data,Settings settings,Preset preset) {
-   string profile=file+".profile.json";Store.Save(profile,new BatchProfile {Preset=Store.Clone(preset),OutputFolder=settings.OutputFolder,FileName=settings.FileName});
+   var snapshot=new BatchProfile {Preset=Store.Clone(preset),OutputFolder=settings.OutputFolder,FileName=settings.FileName};snapshot.Validate();
+   string profile=file+".profile.json";Store.Save(profile,snapshot);
    File.WriteAllText(file,Bat(worker,data,profile),new UTF8Encoding(false));
   }
   public static Settings LoadSettings(string data) {

@@ -16,15 +16,13 @@ static class Program {
    if(enqueue>=0) {
     if(enqueue==args.Length-1)throw new ArgumentException("TSファイルを指定してください。");
     string profileFile=Arg(args,"--profile",null);var profile=profileFile==null?null:Store.Load<BatchProfile>(profileFile,()=>throw new FileNotFoundException("BAT用プリセットがありません。",profileFile));
+    if(profileFile!=null){if(profile==null)throw new InvalidDataException("BAT用プリセットがnullです。BATを作成し直してください。");profile.Validate();}
     QueueManager.Submit(data,args.Skip(enqueue+1),profile);
     if(!args.Contains("--run")){Integration.Wake(Environment.ProcessPath,data);return 0;}
    }
    FileStream lease;
    try{lease=File.Open(Path.Combine(data,"worker.lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.Read);}catch(IOException){return args.Contains("--run")?2:0;}
    using(lease) {
-    // Self-update staging: fetch the newest release in the background so the
-    // GUI can apply it when idle. Best effort; failures only mark the state.
-    _ = Task.Run(async()=>{try{var st=SelfUpdate.Read(data);if(st.Phase!="staged"||!File.Exists(Path.Combine(st.Staging??"","TS-Encode-Flow.exe")))await SelfUpdate.DownloadLatest(data,typeof(Program).Assembly.GetName().Version??new Version(0,0,0),CancellationToken.None,null);}catch{}});
    using(var queue=new QueueManager(data)) {
     string settingsFile=Path.Combine(data,"settings.json"),statusFile=Path.Combine(data,"worker-status.json");
     var settings=Integration.LoadSettings(data);queue.Settings=settings;queue.SaveSettings();
@@ -34,8 +32,10 @@ static class Program {
     try {
      while(!stop.IsCancellationRequested) {
       if(File.GetLastWriteTimeUtc(settingsFile)!=modified){try{var updated=Integration.LoadSettings(data);updated.Validate();queue.Settings=updated;modified=File.GetLastWriteTimeUtc(settingsFile);}catch(Exception e){notice=e.Message;}}
+      bool updating=SelfUpdate.BlocksNewJobs(data);
+      if(updating&&queue.ActiveCount==0)break;
       bool watch=queue.Settings.WatchEnabled;if(args.Contains("--run"))queue.Settings.WatchEnabled=false;
-      queue.Tick();if(queue.StopRequested)break;if(args.Contains("--run"))queue.Settings.WatchEnabled=watch;
+      if(!updating)queue.Tick();if(queue.StopRequested)break;if(args.Contains("--run"))queue.Settings.WatchEnabled=watch;
       if(queue.ActiveCount>0&&(DateTime.UtcNow-progressSaved).TotalSeconds>=1){queue.Save();progressSaved=DateTime.UtcNow;}
       bool busy=queue.Snapshot().Any(j=>j.State==State.Waiting||j.State==State.Running);
       if(busy||queue.Settings.WatchEnabled)idle=DateTime.UtcNow;

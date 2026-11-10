@@ -35,13 +35,21 @@ namespace TsEncodeFlow {
    Settings.Validate();string fingerprint=Store.Fingerprint(path);
    lock(gate) {
     if(automatic&&processed.Contains(fingerprint))return null;
-    if(Jobs.Any(j=>string.Equals(j.Input,path,StringComparison.OrdinalIgnoreCase)&&(j.State==State.Waiting||j.State==State.Running||j.State==State.NeedsLogo||j.State==State.NeedsLogoReview||automatic&&j.Fingerprint==fingerprint)))return null;
+    var existing=Jobs.FirstOrDefault(j=>string.Equals(j.Input,path,StringComparison.OrdinalIgnoreCase)&&(j.State==State.Waiting||j.State==State.Running||j.State==State.NeedsLogo||j.State==State.NeedsLogoReview||automatic&&j.Fingerprint==fingerprint));
+    if(existing!=null) {
+     // Recording-end BAT is authoritative over a watcher submission only until it starts.
+     if(!automatic&&presetOverride!=null&&existing.State==State.Waiting&&existing.PresetSource=="watch") {
+      Commands.Validate(presetOverride);existing.Preset=Store.Clone(presetOverride);existing.OutputFolder=Path.GetFullPath(outputFolder??Settings.OutputFolder);existing.FileName=fileName??Settings.FileName;existing.PresetSource="bat";existing.Message="録画後BATのプリセットを適用しました。";Save();return existing;
+     }
+     return null;
+    }
     var p=presetOverride??Settings.Presets[Math.Min(Math.Max(0,Settings.SelectedPreset),Settings.Presets.Count-1)];Commands.Validate(p);
-    var job=new Job {Input=path,Fingerprint=fingerprint,Preset=Store.Clone(p),OutputFolder=Path.GetFullPath(outputFolder??Settings.OutputFolder),FileName=fileName??Settings.FileName};
+    var job=new Job {Input=path,Fingerprint=fingerprint,Preset=Store.Clone(p),PresetSource=automatic?"watch":presetOverride!=null?"bat":"manual",OutputFolder=Path.GetFullPath(outputFolder??Settings.OutputFolder),FileName=fileName??Settings.FileName};
     job.LogFile=Path.Combine(DataFolder,"Logs",job.Id+".log");Jobs.Add(job);Save();return job;
    }
   }
   public static void Submit(string dataFolder,IEnumerable<string> paths,BatchProfile profile=null) {
+   profile?.Validate();
    string inbox=Path.Combine(dataFolder,"Inbox");Directory.CreateDirectory(inbox);
    string batch=DateTime.UtcNow.Ticks.ToString("D19")+"-"+Guid.NewGuid().ToString("N");int sequence=0;
    foreach(string path in paths) {
@@ -60,6 +68,7 @@ namespace TsEncodeFlow {
   public void Tick() {
    foreach(string request in Directory.EnumerateFiles(Path.Combine(DataFolder,"Inbox"),"*.json").OrderBy(File.GetCreationTimeUtc).ThenBy(Path.GetFileName,StringComparer.Ordinal).Take(100))try {
     var value=Store.Load<Request>(request,()=>new Request());
+    if(value.Action=="enqueue")value.Profile?.Validate();
     if(value.Action=="clear-encode-cache")ClearEncodeCache(value.JobId);else if(value.Action=="import-logo"||value.Action=="delete-logo"||value.Action=="delete-logo-candidate"||value.Action=="delete-station")ManageLogo(value);else if(value.Action=="approve-logo")ReviewLogo(value,true);else if(value.Action=="reject-logo")ReviewLogo(value,false);else if(value.Action=="set-logo-area")SetLogoArea(value);else if(value.Action=="approve-cm")ApproveCm(value);else if(value.Action=="change-preset")ChangePreset(value.JobId,value.Profile?.Preset);else if(value.Action=="clear-history")ClearHistory();else if(value.Action=="shutdown"){StopRequested=true;Paused=true;}else if(value.Action=="retry-ignore-subtitles")Retry(value.JobId,true);else if(value.Action=="cancel-all")CancelAll();else if(value.Action=="cancel")Cancel(value.JobId);else if(value.Action=="retry")Retry(value.JobId);else if(value.Action=="pause")Paused=true;else if(value.Action=="resume")Paused=false;else {var added=Enqueue(value.Path,false,value.Profile?.Preset,value.Profile?.OutputFolder,value.Profile?.FileName);if(added==null)Notice?.Invoke("同じTSはすでに待機中または変換中です。キューを確認してください。");else if(!StopRequested)Paused=false;}
     File.Delete(request);
    }catch(Exception e){Notice?.Invoke("追加失敗："+e.Message);try{File.Move(request,request+".error");}catch(IOException){}}
@@ -84,6 +93,7 @@ namespace TsEncodeFlow {
     Task.Run(async()=> {
      object logGate=new object();Directory.CreateDirectory(Path.GetDirectoryName(j.LogFile));
      Action<string> log=line=>{lock(logGate)File.AppendAllText(j.LogFile,DateTime.Now.ToString("HH:mm:ss ")+line+Environment.NewLine,Encoding.UTF8);};
+     log("適用プリセット（"+j.PresetSource+"）："+Store.Json.Serialize(j.Preset)+"\n出力先："+j.OutputFolder+"\nファイル名："+j.FileName);
      try{await Converter.Convert(j,config,cancellation.Token,log,Save);j.State=State.Completed;}
      catch(LogoReviewException e){j.State=State.NeedsLogoReview;j.Message=e.Message;log(j.Message);}
      catch(LogoAreaRequiredException e){j.State=State.NeedsLogo;j.Message=e.Message;log(j.Message);}
@@ -175,7 +185,7 @@ namespace TsEncodeFlow {
   public void ChangePreset(string id,Preset preset) {
    if(preset==null)throw new ArgumentException("プリセットを選択してください。");Commands.Validate(preset);
    lock(gate){var job=Jobs.FirstOrDefault(j=>j.Id==id);if(job==null||job.State!=State.Cancelled||active.ContainsKey(id))throw new ArgumentException("中止が完了したジョブだけプリセットを変更できます。");
-    job.Preset=Store.Clone(preset);job.Advanced=null;job.Signal=null;job.Telecine=null;job.Metadata=null;job.Commercials=null;job.Glyphs=new List<DrcsGlyph>();job.Progress=0;job.Command="";job.Output="";job.Message="プリセットを「"+preset.Name+"」に変更しました。「再試行」で開始できます。";Save();
+    job.Preset=Store.Clone(preset);job.PresetSource="job";job.Advanced=null;job.Signal=null;job.Telecine=null;job.Metadata=null;job.Commercials=null;job.Glyphs=new List<DrcsGlyph>();job.Progress=0;job.Command="";job.Output="";job.Message="プリセットを「"+preset.Name+"」に変更しました。「再試行」で開始できます。";Save();
    }
   }
   public void Retry(string id,bool ignoreSubtitleErrors=false) {

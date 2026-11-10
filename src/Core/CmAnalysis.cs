@@ -112,8 +112,16 @@ namespace TsEncodeFlow {
     }
     var logo=await Processes.Run(logoExe,logoArgs,token,log);return logo.ExitCode==0&&File.Exists(logoOutput)&&new FileInfo(logoOutput).Length>0;
    },token,log);
-   job.Message="chapter_exeで無音・シーンチェンジを検出中";changed();var chapterArgs=new List<string>{"-v",avs,"-o",chapters};if(job.Metadata.Fps>=50)chapterArgs.AddRange(new[]{"-s","20"});
-   var detected=await Processes.Run(chapter,chapterArgs,token,log);if(detected.ExitCode!=0||!File.Exists(chapters))throw new InvalidDataException("無音・シーンチェンジ検出に失敗しました。");
+   string pcm=Path.Combine(work,"chapter-audio.wav"),chapterAvs=Path.Combine(work,"chapter.avs");
+   try {
+    job.Message="CM解析用の音声を準備中（映像の中間出力なし）";changed();await CmAudio.Prepare(job,settings,pcm,token,log);
+    // Keep the exact same aligned video frames as logoframe. Only substitute
+    // the audio reader; never change frame numbering or infer missing footage.
+    File.WriteAllText(chapterAvs,"ClearAutoloadDirs()\nLoadPlugin("+Avs(plugin)+")\nv=LWLibavVideoSource("+Avs(privateIndex)+",stream_index="+nativeVideo+",threads=4,repeat=false).Trim("+skip+",-"+times.Length+").KillAudio()\na=WavSource("+Avs(pcm)+")\nAudioDub(v,a).AssumeFPS("+((int)Math.Round(job.Metadata.Fps*1000000)).ToString(CultureInfo.InvariantCulture)+",1000000).ConvertToYV12()\n",encoding);
+    job.Message="chapter_exeで無音・シーンチェンジを検出中";changed();var chapterArgs=new List<string>{"-v",chapterAvs,"-o",chapters};if(job.Metadata.Fps>=50)chapterArgs.AddRange(new[]{"-s","20"});
+    var detected=await Processes.Run(chapter,chapterArgs,token,log,timeoutSeconds:Math.Max(180,(int)Math.Ceiling(job.Metadata.Duration*2)));
+    if(detected.ExitCode!=0||!File.Exists(chapters)||!Regex.IsMatch(File.ReadAllText(chapters,encoding),@"(?m)^# SCPos:"+(times.Length-1)+@"\s+"+(times.Length-1)+@"\s*$"))throw new InvalidDataException("無音・シーンチェンジ検出が最後まで完了していません。詳細ログを確認してください。");
+   }finally{if(File.Exists(pcm))File.Delete(pcm);}
    job.Message="join_logo_scpでCM区間を判定中";changed();var joinArgs=new List<string>{"-inscp",chapters,"-incmd",script,"-o",trim,"-oscp",Path.Combine(work,"timeline.txt")};if(useLogo)joinArgs.AddRange(new[]{"-inlogo",logoOutput});
    var joined=await Processes.Run(jls,joinArgs,token,log);if(joined.ExitCode!=0||!File.Exists(trim))throw new InvalidDataException("join_logo_scpのCM判定に失敗しました。");
    if(Store.Fingerprint(job.MediaInput)+"|"+job.Metadata.VideoIndex!=identityValue)throw new IOException("CM解析中に入力TSが更新されました。再解析してください。");

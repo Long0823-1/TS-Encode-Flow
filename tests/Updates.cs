@@ -54,7 +54,7 @@ static partial class Tests {
   var picked=Updates.PickLatest(doc.RootElement);
   Check(picked!=null&&picked.Tag=="v0.2.7"&&picked.Digest=="sha256:abc123"&&picked.ZipUrl.EndsWith("-win-x64.zip"),"pick latest returns the zip asset and its digest");
   Check(Updates.TryVersion("v0.6.8",out var parsed)&&parsed==new Version(0,6,8),"version tags parse");
-  Check(Updates.IsAppZip("TS-Encode-Flow-0.6.9-win-x64.zip")&&Updates.IsAppZip("TS-Encode-Flow-v0.6.7-windows-x64.zip")==false&&!Updates.IsAppZip("TS-Encode-Flow-0.6.9-source.zip"),"app zip asset pattern matches workflow naming only");
+  Check(Updates.IsAppZip("TS-Encode-Flow-0.6.9-win-x64.zip")&&Updates.IsAppZip("TS-Encode-Flow-v0.6.7-windows-x64.zip")&&!Updates.IsAppZip("TS-Encode-Flow-0.6.9-source.zip"),"app zip asset pattern supports both published Windows naming formats");
   Check(!Updates.TryVersion("v0.6.8-beta",out _),"suffixed tags rejected");
  }
 }

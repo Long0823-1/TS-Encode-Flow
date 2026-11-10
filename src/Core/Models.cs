@@ -151,6 +151,7 @@ namespace TsEncodeFlow {
   public double Progress;
   public DateTime Created=DateTime.Now;
   public Preset Preset;
+  public string PresetSource="";
   public string OutputFolder,FileName;
   public Metadata Metadata;
   public CmPlan Commercials;

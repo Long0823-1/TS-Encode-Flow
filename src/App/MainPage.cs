@@ -14,20 +14,25 @@ sealed class MainPage:ContentPage {
  readonly ContentView updateBanner=new(){IsVisible=false};
  static readonly System.Net.Http.HttpClient updateHttp=new();
  bool updateChecking,updateStarted;
- bool updateArmed,updateDownloading;
- // When an update is staged and no conversion is running, arm the swap and
- // close the GUI: App startup then applies it and relaunches automatically.
- void MaybeAutoApply() {
+ bool updateArmed,updateDownloading,updateApplying;
+ Button? updateButton;
+ // Prepare the swap off the UI thread after active conversions finish, then
+ // close this GUI only once the external replacement helper is ready.
+ async Task MaybeAutoApply() {
+  if(updateApplying)return;
   try {
    var state=SelfUpdate.Read(client.Data);
    if((state.Phase!="staged"&&state.Phase!="armed")||!updateArmed)return;
+   if(updateButton!=null)updateButton.IsEnabled=false;
    client.Refresh();
    if(client.Status.Active>0||client.Jobs.Any(j=>j.State==State.Running))return;
+   updateApplying=true;
    state.Phase="armed";SelfUpdate.Write(client.Data,state);
    updateText.Text=state.Tag+" へ更新します。アプリを再起動しています…";updateBanner.IsVisible=true;
-   if(SelfUpdate.ApplyPending(client.Data,AppContext.BaseDirectory,typeof(MainPage).Assembly.GetName().Version))Application.Current?.Quit();
+   if(await SelfUpdate.ApplyPendingAsync(client.Data,AppContext.BaseDirectory,typeof(MainPage).Assembly.GetName().Version,message=>Dispatcher.Dispatch(()=>updateText.Text=message)))Application.Current?.Quit();
    else {updateArmed=false;updateText.Text=SelfUpdate.Read(client.Data).Error;}
-  }catch{/* update arming must never break the GUI */}
+  }catch(Exception e){updateArmed=false;updateText.Text="更新を適用できませんでした："+e.Message;}
+  finally{updateApplying=false;if(updateButton!=null&&!updateArmed&&!updateDownloading)updateButton.IsEnabled=true;}
  }
  async Task<string> CheckUpdates() {
   if(updateChecking)return "更新情報を確認中です。";
@@ -41,13 +46,13 @@ sealed class MainPage:ContentPage {
   }finally{updateChecking=false;}
  }
  async Task InstallUpdate() {
-  if(updateDownloading)return;
-  updateDownloading=true;updateBanner.IsVisible=true;
+  if(updateDownloading||updateApplying||updateArmed)return;
+  updateDownloading=true;updateBanner.IsVisible=true;if(updateButton!=null)updateButton.IsEnabled=false;
   try {
    var state=await SelfUpdate.DownloadLatest(client.Data,typeof(MainPage).Assembly.GetName().Version??new Version(0,0,0),CancellationToken.None,message=>Dispatcher.Dispatch(()=>updateText.Text=message));
    if(state.Phase!="staged"){updateText.Text=state.Error;return;}
-   state.Phase="armed";SelfUpdate.Write(client.Data,state);updateArmed=true;updateText.Text=state.Tag+" の準備ができました。実行中の変換が終わったら更新・再起動します。";MaybeAutoApply();
-  }catch(Exception e){updateText.Text="更新できませんでした："+e.Message;}finally{updateDownloading=false;}
+   state.Phase="armed";SelfUpdate.Write(client.Data,state);updateArmed=true;updateText.Text=state.Tag+" の準備ができました。実行中の変換が終わったら更新・再起動します。";await MaybeAutoApply();
+  }catch(Exception e){updateText.Text="更新できませんでした："+e.Message;}finally{updateDownloading=false;if(updateButton!=null)updateButton.IsEnabled=!updateArmed;}
  }
  public MainPage() {
   try{client=new EngineClient();}catch(Exception e){Content=Pixel.Stack(Pixel.Text("設定を読み込めませんでした",24),Pixel.Text(e.Message));return;}
@@ -59,12 +64,12 @@ sealed class MainPage:ContentPage {
   foreach(var item in new[]{("ダッシュボード","◉"),("変換キュー","☷"),("プリセット","◈"),("字幕・DRCS","文"),("CM・タイムリスト","▥"),("放送局ロゴ","▣"),("自動化","↻"),("解析・比較","◫"),("設定","⚙")}) {
    string name=item.Item1;var button=Pixel.Button(item.Item2+"   "+name,()=>Navigate(name));button.HorizontalOptions=LayoutOptions.Fill;button.Padding=new Thickness(18,14);nav[name]=button;links.Children.Add(button);
   }
-  rail.Add(links,0,1);rail.Add(Pixel.Stack(Pixel.Text("元のTSはそのまま",13,Pixel.Muted,true),Pixel.Text("0.6.16 · .NET MAUI",12,Pixel.Muted),Pixel.Button("Ko-fiで開発を応援",()=>Pickers.Open("https://ko-fi.com/long0823"))),0,2);root.Add(rail,0,0);
+  rail.Add(links,0,1);rail.Add(Pixel.Stack(Pixel.Text("元のTSはそのまま",13,Pixel.Muted,true),Pixel.Text((typeof(MainPage).Assembly.GetName().Version?.ToString(3)??"不明")+" · .NET MAUI",12,Pixel.Muted),Pixel.Button("Ko-fiで開発を応援",()=>Pickers.Open("https://ko-fi.com/long0823"))),0,2);root.Add(rail,0,0);
   var main=new Grid {RowDefinitions=new RowDefinitionCollection {new(88),new(GridLength.Auto),new(GridLength.Star),new(34)},RowSpacing=12};
-  var heading=new Grid {ColumnDefinitions=new ColumnDefinitionCollection {new(GridLength.Star),new(GridLength.Auto)}};heading.Add(Pixel.Stack(title,subtitle),0,0);heading.Add(Pixel.Button("＋ TSを追加",AddFiles,true),1,0);main.Add(heading,0,0);updateBanner.Content=Pixel.Card(Pixel.Stack(updateText,Pixel.Button("ダウンロードして更新",InstallUpdate,true)),Pixel.Tint,16);main.Add(updateBanner,0,1);main.Add(body,0,2);main.Add(toast,0,3);root.Add(main,1,0);Content=root;
+  var heading=new Grid {ColumnDefinitions=new ColumnDefinitionCollection {new(GridLength.Star),new(GridLength.Auto)}};heading.Add(Pixel.Stack(title,subtitle),0,0);heading.Add(Pixel.Button("＋ TSを追加",AddFiles,true),1,0);main.Add(heading,0,0);updateBanner.Content=Pixel.Card(Pixel.Stack(updateText,updateButton=Pixel.Button("ダウンロードして更新",InstallUpdate,true)),Pixel.Tint,16);main.Add(updateBanner,0,1);main.Add(body,0,2);main.Add(toast,0,3);root.Add(main,1,0);Content=root;
   var launchArgs=Environment.GetCommandLineArgs();int pageIndex=Array.IndexOf(launchArgs,"--page");Navigate(pageIndex>=0&&pageIndex+1<launchArgs.Length&&nav.ContainsKey(launchArgs[pageIndex+1])?launchArgs[pageIndex+1]:section);
   Dispatcher.StartTimer(TimeSpan.FromSeconds(1),()=>{Refresh();return true;});
-    Loaded+=async(s,e)=>{Refresh();if(!updateStarted){updateStarted=true;client.Wake();await CheckUpdates();}};
+    Loaded+=async(s,e)=>{Refresh();if(!updateStarted){updateStarted=true;var pending=SelfUpdate.Read(client.Data);if(pending.Phase=="armed"&&!Environment.GetCommandLineArgs().Contains("--no-update")){updateArmed=true;updateBanner.IsVisible=true;updateText.Text="準備済みの更新を確認しています…";await MaybeAutoApply();}else{client.Wake();await CheckUpdates();}}};
   Dispatcher.StartTimer(TimeSpan.FromHours(6),()=>{_ = CheckUpdates();return true;});
  }
  async Task AddFiles(){var files=await Pickers.Files();if(files.Count>0){int n=client.Add(files);Notice(n+"本を追加しました。録画中のファイルは終了まで待機します。");Refresh();}}
@@ -113,7 +118,7 @@ sealed class MainPage:ContentPage {
    var ordered=QueueOrder.Display(client.Jobs);for(int i=0;i<ordered.Count;i++){var j=ordered[i];var row=rows.FirstOrDefault(x=>x.Id==j.Id);if(row==null)rows.Insert(i,new JobRow(j));else{row.Update(j);int current=rows.IndexOf(row);if(current!=i)rows.Move(current,i);}}
    if(!updateArmed&&!client.WorkerAlive&&!client.Status.Paused&&(client.Settings.WatchEnabled||client.Jobs.Any(j=>j.State==State.Waiting))&&(DateTime.UtcNow-lastWake).TotalSeconds>8){lastWake=DateTime.UtcNow;client.Wake();}
    if(!string.IsNullOrEmpty(client.Status.Message))toast.Text=client.Status.Message;
-   if(updateArmed)MaybeAutoApply();
+   if(updateArmed)_ = MaybeAutoApply();
   }catch(Exception ex){toast.Text=ex.Message;}finally{refreshing=false;}
  }
 }

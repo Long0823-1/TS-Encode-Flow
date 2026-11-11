@@ -27,7 +27,7 @@ namespace TsEncodeFlow {
   public static bool BlocksNewJobs(string data){string phase=Read(data).Phase;return phase=="armed"||phase=="applying";}
   public static async Task Verify(string zip,string digest,CancellationToken token) {
    if(digest==null||!System.Text.RegularExpressions.Regex.IsMatch(digest,@"\Asha256:[a-fA-F0-9]{64}\z"))throw new InvalidDataException("配布元のSHA-256がありません。検証できない更新は適用しません。");
-   using var input=File.OpenRead(zip);string actual=Convert.ToHexString(await SHA256.HashDataAsync(input,token));
+   using var input=File.OpenRead(zip);string actual=Convert.ToHexString(await SHA256.HashDataAsync(input,token).ConfigureAwait(false));
    if(!string.Equals(actual,digest.Substring(7),StringComparison.OrdinalIgnoreCase))throw new InvalidDataException("更新ZIPのSHA-256が配布情報と一致しません。");
   }
   public static void ValidateStage(string folder) {
@@ -35,7 +35,8 @@ namespace TsEncodeFlow {
    foreach(var file in Directory.EnumerateFileSystemEntries(folder,"*",SearchOption.AllDirectories))if((File.GetAttributes(file)&FileAttributes.ReparsePoint)!=0)throw new InvalidDataException("更新ファイルにリンクは使用できません。");
   }
   public static async Task<UpdateState> DownloadLatest(string data,Version current,CancellationToken token,Action<string> progress)=>await DownloadLatest(data,current,token,progress,Http);
-  public static async Task<UpdateState> DownloadLatest(string data,Version current,CancellationToken token,Action<string> progress,HttpClient http) {
+  public static Task<UpdateState> DownloadLatest(string data,Version current,CancellationToken token,Action<string> progress,HttpClient http)=>Task.Run(()=>DownloadCore(data,current,token,progress,http),token);
+  static async Task<UpdateState> DownloadCore(string data,Version current,CancellationToken token,Action<string> progress,HttpClient http) {
    await DownloadGate.WaitAsync(token);var state=new UpdateState();
    try {
     using var request=new HttpRequestMessage(HttpMethod.Get,Updates.ListUrl);request.Headers.UserAgent.ParseAdd("TS-Encode-Flow/"+current.ToString(3));request.Headers.Accept.ParseAdd("application/vnd.github+json");
@@ -51,32 +52,37 @@ namespace TsEncodeFlow {
      await using var input=await download.Content.ReadAsStreamAsync(token);await using var output=new FileStream(zip,FileMode.CreateNew,FileAccess.Write,FileShare.None,131072,true);byte[] buffer=new byte[131072];int n;
      while((n=await input.ReadAsync(buffer,token))>0){await output.WriteAsync(buffer.AsMemory(0,n),token);done+=n;if(done>2L*1024*1024*1024)throw new InvalidDataException("更新ZIPが大きすぎます。");if((DateTime.UtcNow-last).TotalMilliseconds>300){progress?.Invoke(candidate.Tag+" をダウンロード中："+(total>0?(done*100/total)+"%":(done/1048576)+" MB"));last=DateTime.UtcNow;}}
     }
-    progress?.Invoke("SHA-256を検証中…");await Verify(zip,candidate.Digest,token);
+    state.Phase="verifying";Write(data,state);progress?.Invoke("SHA-256を検証中…");await Verify(zip,candidate.Digest,token);
     string staging=Path.Combine(folder,"app");Directory.CreateDirectory(staging);long expanded=0;
-    using(var archive=ZipFile.OpenRead(zip))foreach(var entry in archive.Entries) {
+    state.Phase="extracting";Write(data,state);progress?.Invoke("更新ファイルを展開中…");
+    using(var archive=ZipFile.OpenRead(zip)){int extracted=0;var last=DateTime.MinValue;foreach(var entry in archive.Entries) {
      token.ThrowIfCancellationRequested();expanded+=entry.Length;if(expanded>4L*1024*1024*1024)throw new InvalidDataException("更新の展開容量が大きすぎます。");
      if(((entry.ExternalAttributes>>16)&0xF000)==0xA000)throw new InvalidDataException("更新ZIPにリンクが含まれています。");
      string path=ToolInstaller.SafeEntry(staging,entry.FullName);
-     if(entry.FullName.EndsWith("/")){Directory.CreateDirectory(path);continue;}Directory.CreateDirectory(Path.GetDirectoryName(path));entry.ExtractToFile(path,false);
-    }
+     if(entry.FullName.EndsWith("/")){Directory.CreateDirectory(path);}else{Directory.CreateDirectory(Path.GetDirectoryName(path));entry.ExtractToFile(path,false);}
+     extracted++;if((DateTime.UtcNow-last).TotalMilliseconds>200||extracted==archive.Entries.Count){progress?.Invoke("更新ファイルを展開中："+extracted+" / "+archive.Entries.Count);last=DateTime.UtcNow;}
+    }}
+    progress?.Invoke("展開した更新ファイルを確認中…");
     ValidateStage(staging);state.Phase="staged";state.ZipPath=zip;state.Staging=staging;Write(data,state);progress?.Invoke(candidate.Tag+" の準備ができました。");return state;
    }catch(OperationCanceledException){state.Phase="error";state.Error="更新のダウンロードを中止しました。";Write(data,state);throw;}
    catch(Exception e){state.Phase="error";state.Error=e.Message;Write(data,state);return state;}
    finally{DownloadGate.Release();}
   }
-  public static bool ApplyPending(string data,string appFolder,Version current=null) {
+  public static Task<bool> ApplyPendingAsync(string data,string appFolder,Version current=null,Action<string> progress=null)=>Task.Run(()=>ApplyPending(data,appFolder,current,progress));
+  public static bool ApplyPending(string data,string appFolder,Version current=null,Action<string> progress=null) {
    var state=Read(data);if(state.Phase!="armed")return false;
    try {
     current??=System.Reflection.Assembly.GetEntryAssembly()?.GetName().Version??new Version(0,0,0);
     if(!Updates.TryVersion(state.Tag,out var target)||target<=Updates.Normalize(current)){state.Phase="none";Write(data,state);return false;}
     string stage=Path.GetFullPath(state.Staging),root=Path.GetFullPath(StagingRoot(data))+Path.DirectorySeparatorChar;
     if(!stage.StartsWith(root,StringComparison.OrdinalIgnoreCase))throw new InvalidDataException("更新の準備先が不正です。");
-    Verify(state.ZipPath,state.Digest,CancellationToken.None).GetAwaiter().GetResult();ValidateStage(stage);
+    progress?.Invoke("ダウンロード済みZIPを再検証中…");Verify(state.ZipPath,state.Digest,CancellationToken.None).GetAwaiter().GetResult();ValidateStage(stage);
     appFolder=Path.GetFullPath(appFolder).TrimEnd(Path.DirectorySeparatorChar);
     if(!File.Exists(Path.Combine(appFolder,"TS-Encode-Flow.exe")))throw new InvalidDataException("アプリのインストール先を確認できません。");
     string script=Path.Combine(StagingRoot(data),"apply-"+Guid.NewGuid().ToString("N")+".ps1");
     string Q(string value)=>"'"+value.Replace("'","''")+"'";
-    var files=Directory.EnumerateFiles(stage,"*",SearchOption.AllDirectories).Select(f=>new {Relative=Path.GetRelativePath(stage,f),Hash=Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(f)))}).ToArray();
+    var paths=Directory.EnumerateFiles(stage,"*",SearchOption.AllDirectories).ToArray();int checkedFiles=0;var lastProgress=DateTime.MinValue;
+    var files=paths.Select(f=>{using var input=File.OpenRead(f);string hash=Convert.ToHexString(SHA256.HashData(input));checkedFiles++;if((DateTime.UtcNow-lastProgress).TotalMilliseconds>200||checkedFiles==paths.Length){progress?.Invoke("更新用ファイルを確認中："+checkedFiles+" / "+paths.Length);lastProgress=DateTime.UtcNow;}return new {Relative=Path.GetRelativePath(stage,f),Hash=hash};}).ToArray();
     string manifest=script+".json";File.WriteAllText(manifest,JsonSerializer.Serialize(files),Encoding.UTF8);
     string header="$src="+Q(stage)+"\n$dst="+Q(appFolder)+"\n$data="+Q(Path.GetFullPath(data))+"\n$manifest="+Q(manifest)+"\n$self="+Environment.ProcessId+"\n";
     File.WriteAllText(script,header+ApplyScript,new UTF8Encoding(true));state.Phase="applying";Write(data,state);

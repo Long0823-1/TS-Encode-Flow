@@ -113,7 +113,7 @@ static partial class Tests {
    BackgroundAndSubtitles(root).GetAwaiter().GetResult();
    CmTests(root).GetAwaiter().GetResult();
    if(args.Contains("--cm-live"))CmLive(root,args).GetAwaiter().GetResult();
-   UpdateTests().GetAwaiter().GetResult();BatchProfiles(root).GetAwaiter().GetResult();StorageChecks(root);
+   UpdateTests().GetAwaiter().GetResult();BatchProfiles(root).GetAwaiter().GetResult();StorageChecks(root);UpdateUi(root);
    if(args.Contains("--updates-live"))UpdateLive().GetAwaiter().GetResult();
    if(args.Contains("--live"))Live(root,args).GetAwaiter().GetResult();
    if(args.Contains("--features"))Features(root,args).GetAwaiter().GetResult();

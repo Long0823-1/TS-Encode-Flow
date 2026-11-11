@@ -7,15 +7,7 @@ public partial class App:Application {
  [DllImport("user32.dll")]static extern bool ShowWindow(nint handle,int command);
  [DllImport("user32.dll")]static extern bool SetForegroundWindow(nint handle);
  public App(){InitializeComponent();UserAppTheme=AppTheme.Light;
-  // Self-update swap: if a newer build was staged and armed by the previous
-  // session, replace this install and relaunch before anything else starts.
-  // --no-update is passed by the updater script itself as a safety valve.
-  var cmdArgs=Environment.GetCommandLineArgs();
-  if(!cmdArgs.Contains("--no-update")) {
-   int di=Array.IndexOf(cmdArgs,"--data");
-   string dataFolder=di>=0&&di+1<cmdArgs.Length?Path.GetFullPath(cmdArgs[di+1]):Integration.DataFolder;
-   if(SelfUpdate.ApplyPending(dataFolder,AppContext.BaseDirectory))Environment.Exit(0);
-  }
+  // Resume armed updates after the window is loaded, without blocking its UI thread.
  }
  protected override Window CreateWindow(IActivationState? state) {
   var page=new MainPage();var nav=new NavigationPage(page);NavigationPage.SetHasNavigationBar(page,false);

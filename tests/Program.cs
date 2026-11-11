@@ -46,6 +46,7 @@ static partial class Tests {
   }
  }
  [STAThread]static int Main(string[] args) {
+   if(args.Contains("--repair-failures")){RepairFailures(args).GetAwaiter().GetResult();return 0;}
    if(args.Contains("--update-transactions")){UpdateTransactions(args).GetAwaiter().GetResult();return 0;}
    if(args.Contains("--current-cm")){CurrentCm(args).GetAwaiter().GetResult();return 0;}
   if(args.Contains("--main-epg-real")){MainEpgReal(args).GetAwaiter().GetResult();return 0;}
@@ -112,7 +113,7 @@ static partial class Tests {
    BackgroundAndSubtitles(root).GetAwaiter().GetResult();
    CmTests(root).GetAwaiter().GetResult();
    if(args.Contains("--cm-live"))CmLive(root,args).GetAwaiter().GetResult();
-   UpdateTests().GetAwaiter().GetResult();BatchProfiles(root).GetAwaiter().GetResult();
+   UpdateTests().GetAwaiter().GetResult();BatchProfiles(root).GetAwaiter().GetResult();StorageChecks(root);
    if(args.Contains("--updates-live"))UpdateLive().GetAwaiter().GetResult();
    if(args.Contains("--live"))Live(root,args).GetAwaiter().GetResult();
    if(args.Contains("--features"))Features(root,args).GetAwaiter().GetResult();

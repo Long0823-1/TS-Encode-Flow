@@ -34,7 +34,8 @@ namespace TsEncodeFlow {
    }
    // Validate the entire tree before any removal. Only this job's managed cache
    // is removed; output files and source TS paths are never taken from manifests.
-   foreach(string dir in dirs.AsEnumerable().Reverse()){foreach(string file in Directory.EnumerateFiles(dir))File.Delete(file);Directory.Delete(dir);}
+   foreach(string dir in dirs)foreach(string file in Directory.EnumerateFiles(dir))if((File.GetAttributes(file)&FileAttributes.ReparsePoint)!=0)throw new IOException("リンクされたキャッシュファイルは削除しません。");
+   foreach(string dir in dirs.AsEnumerable().Reverse()){foreach(string file in Directory.EnumerateFiles(dir)){var attributes=File.GetAttributes(file);if((attributes&FileAttributes.ReadOnly)!=0)File.SetAttributes(file,attributes&~FileAttributes.ReadOnly);File.Delete(file);}Directory.Delete(dir);}
   }
  }
 }

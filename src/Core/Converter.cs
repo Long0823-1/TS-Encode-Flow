@@ -13,6 +13,9 @@ namespace TsEncodeFlow {
   public static bool WritableRecording(string file) {
    try{using(var f=File.Open(file,FileMode.Open,FileAccess.Read,FileShare.Read)){return f.Length>0;}}catch(IOException){return false;}catch(UnauthorizedAccessException){return false;}
   }
+  public static bool ClosedEmptyRecording(string file) {
+   try{using var f=File.Open(file,FileMode.Open,FileAccess.Read,FileShare.Read);return f.Length==0;}catch(IOException){return false;}catch(UnauthorizedAccessException){return false;}
+  }
   public static async Task Convert(Job j,Settings settings,CancellationToken token,Action<string> log,Action changed) {
    j.WorkingInput="";j.TimelineRepair=null;Commands.Validate(j.Preset);if(!WritableRecording(j.Input))throw new IOException("入力が録画中または読み取りできません。");
    string fingerprint=Store.Fingerprint(j.Input);

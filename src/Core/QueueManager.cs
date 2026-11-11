@@ -87,7 +87,10 @@ namespace TsEncodeFlow {
    lock(gate)foreach(var j in Jobs.Where(j=>j.State==State.Waiting).ToList()) {
     if(active.Count>=Settings.Parallel)break;
     if(!File.Exists(j.Input)){j.State=State.Failed;j.Message="入力がありません。";Save();continue;}
-    if(!Stable(j.Input)){j.Message="更新・書き込みの終了待ち";continue;}
+    if(!Stable(j.Input)){
+     if((DateTime.UtcNow-File.GetLastWriteTimeUtc(j.Input)).TotalSeconds>=Settings.QuietSeconds&&Converter.ClosedEmptyRecording(j.Input)){j.State=State.Failed;j.Message="入力TSは0バイトで、録画データが入っていません。録画先の空き容量とEDCBの録画結果を確認してください。変換で欠落内容を復元することはできません。";Save();}
+     else j.Message="更新・書き込みの終了待ち";continue;
+    }
     var cancellation=new CancellationTokenSource();active.Add(j.Id,cancellation);j.State=State.Running;j.Message="入力を解析中";j.Progress=0;
     var config=Store.Clone(Settings);Save();
     Task.Run(async()=> {

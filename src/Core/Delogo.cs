@@ -149,7 +149,7 @@ namespace TsEncodeFlow {
    if(File.Exists(output)&&receipt.Source==key&&receipt.Output==Store.Fingerprint(output)) {
     try{await ValidateIntermediate(settings,output,job.Metadata,expectedDuration,token);log("ロゴ消し済み映像をキャッシュから再利用します。");return output;}catch(InvalidDataException){log("ロゴ消し済み映像のキャッシュが壊れているため作り直します。");}
    }
-   job.Message="透過ロゴを除去中（AviSynth + DelogoHD）";changed();
+   StorageSpace.Require(output);job.Message="透過ロゴを除去中（AviSynth + DelogoHD）";changed();
    // Private AviSynth runtime: host exe + runtime + plugins in one folder, like logoframe.
    string runtime=Path.Combine(folder,"delogo-runtime");Directory.CreateDirectory(runtime);
    foreach(string dll in new[]{"AviSynth.dll","vcruntime140.dll","msvcp140.dll"}){string source=Path.Combine(bin,dll);if(File.Exists(source))File.Copy(source,Path.Combine(runtime,dll),true);}
@@ -216,7 +216,7 @@ namespace TsEncodeFlow {
     args.AddRange(new[]{"-c:v","ffv1","-level","3",pending});
     log(Processes.Quote(settings.Ffmpeg)+" "+string.Join(" ",args.Select(Processes.Quote)));
     var run=await Processes.Run(settings.Ffmpeg,args,token,log,0,runtime);
-    if(run.ExitCode!=0)throw new InvalidDataException("ロゴ消しの映像出力に失敗しました（FFmpeg 終了コード "+run.ExitCode+"）："+Converter.Tail((string.IsNullOrWhiteSpace(run.Error)?run.Output:run.Error).Trim()));
+    if(run.ExitCode!=0)throw new InvalidDataException("ロゴ消しの映像出力に失敗しました（FFmpeg 終了コード "+run.ExitCode+"）："+StorageSpace.Failure((string.IsNullOrWhiteSpace(run.Error)?run.Output:run.Error).Trim(),run.ExitCode,pending));
     token.ThrowIfCancellationRequested();
     if(Store.Fingerprint(job.MediaInput)!=sourceFingerprint)throw new IOException("ロゴ消し中に入力ファイルが更新されました。");
     await ValidateIntermediate(settings,pending,job.Metadata,expectedDuration,token);

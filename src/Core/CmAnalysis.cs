@@ -11,7 +11,9 @@ using System.Threading.Tasks;
 namespace TsEncodeFlow {
  public static class CmAnalysis {
   static string Avs(string path) {if(path.IndexOfAny(new[]{'"','\r','\n'})>=0)throw new ArgumentException("AVSに使用できないパスです。");return "\""+Path.GetFullPath(path).Replace('\\','/')+"\"";}
-  public static async Task<CmPlan> Analyze(Job job,Settings settings,string data,CancellationToken token,Action<string> log,Action changed) {
+  public static Task<CmPlan> Analyze(Job job,Settings settings,string data,CancellationToken token,Action<string> log,Action changed)=>AnalyzeAttempt(job,settings,data,token,log,changed,true);
+  static async Task<CmPlan> AnalyzeAttempt(Job job,Settings settings,string data,CancellationToken token,Action<string> log,Action changed,bool mayRebuild) {
+   var originalMetadata=Store.Clone(job.Metadata);
    token.ThrowIfCancellationRequested();StationLogos.Require(data,job,settings);
    string chapter=settings.ChapterExe,logoExe=settings.LogoFrame;
    string bundled=Path.Combine(AppContext.BaseDirectory,"Tools","CmLogo","logoframe.exe"),managed=Path.GetFullPath(Path.Combine(data,"Tools","logoframe"))+Path.DirectorySeparatorChar;
@@ -54,11 +56,11 @@ namespace TsEncodeFlow {
     return(int.Parse(match.Groups[1].Value),int.Parse(match.Groups[2].Value),int.Parse(match.Groups[5].Value));
    }
    job.Message="元TSのCM解析インデックスを準備中（再エンコードなし）";changed();
-   if(!File.Exists(privateIndex)||!File.Exists(privateIndex+".identity")||File.ReadAllText(privateIndex+".identity")!=privateIdentity) {
+   if(!CmIndex.Complete(privateIndex)||!File.Exists(privateIndex+".identity")||File.ReadAllText(privateIndex+".identity")!=privateIdentity) {
     using var lease=await CmIndex.Lock(job.MediaInput,token);
     string sharedIndex=Path.GetFullPath(job.MediaInput)+".lwi",cacheDir=Path.Combine(data,"Commercials","IndexCache");Directory.CreateDirectory(cacheDir);
     string canonical=Path.Combine(cacheDir,CmIndex.Key(job.MediaInput)+".lwi"),receipt=canonical+".identity";
-    if(!File.Exists(canonical)||!File.Exists(receipt)||File.ReadAllText(receipt)!=sourceIdentity) {
+    if(!CmIndex.Complete(canonical)||!File.Exists(receipt)||File.ReadAllText(receipt)!=sourceIdentity) {
      string backup=Path.Combine(work,"previous-source-index.lwi");bool hadIndex=File.Exists(sharedIndex);if(hadIndex)File.Move(sharedIndex,backup);
      try {
       File.WriteAllText(avs,Script(job.MediaInput),encoding);await Info();
@@ -82,7 +84,15 @@ namespace TsEncodeFlow {
    log("CMトラック照合：FFmpeg映像 "+job.Metadata.VideoIndex+" → 解析映像 "+nativeVideo+" / FFmpeg音声 "+job.Metadata.AudioIndex+" → 解析音声 "+nativeAudio);
    File.WriteAllText(avs,Script(privateIndex),encoding);var sourceInfo=await Info();
    if(sourceInfo.Width!=job.Metadata.Width||sourceInfo.Height!=job.Metadata.Height)throw new InvalidDataException("CM解析の映像形式が元TSと一致しません。");
-   double[] indexed=CmIndex.Read(privateIndex,nativeVideo,sourceInfo.Count,out var widths,out var heights);
+   double[] indexed;int[] widths,heights;
+   try{indexed=CmIndex.Read(privateIndex,nativeVideo,sourceInfo.Count,out widths,out heights);}
+   catch(InvalidDataException)when(mayRebuild) {
+    log("CMインデックスが不完全なため、保存済みキャッシュを使わず1回だけ作り直します。");
+    using(var lease=await CmIndex.Lock(job.MediaInput,token)) {
+     File.Delete(privateIndex);File.Delete(privateIndex+".identity");File.Delete(Path.Combine(data,"Commercials","IndexCache",CmIndex.Key(job.MediaInput)+".lwi.identity"));
+    }
+    job.Metadata=originalMetadata;return await AnalyzeAttempt(job,settings,data,token,log,changed,false);
+   }
    int skip=CmIndex.Align(indexed,times.Select(t=>t+headerVideoStart).ToArray(),job.Preset.RepairTimeline?1/job.Metadata.Fps:0,log);
    for(int i=skip;i<skip+times.Length;i++)if(widths[i]!=job.Metadata.Width||heights[i]!=job.Metadata.Height)throw new InvalidDataException("解析区間の途中で映像解像度が変化しています。自動適用を停止しました。");
    log("元TSを直接解析：先頭調整 "+skip+" フレーム / 対応確認 "+times.Length+" フレーム / インデックス "+new FileInfo(privateIndex).Length+" bytes");
@@ -137,7 +147,7 @@ namespace TsEncodeFlow {
    if(count<1||times.Length!=count||!double.IsFinite(times[0])||times[0]<-.001||times[0]>2)throw new InvalidDataException("入力TSのフレーム時刻を正しく読み取れません。自動CM適用を停止しました。");
    var gaps=new List<(int Index,double Delta)>();
    for(int i=1;i<times.Length;i++) {
-    if(!double.IsFinite(times[i])||times[i]<=times[i-1])throw new InvalidDataException("入力TSのフレーム時刻が重複または逆行しています。自動CM適用を停止しました。");
+    if(!double.IsFinite(times[i])||times[i]<=times[i-1])throw new InvalidDataException($"入力TSのフレーム時刻が重複または逆行しています（フレーム{i}、{times[i-1]:F6}秒 → {times[i]:F6}秒）。自動CM適用を停止しました。");
     double delta=times[i]-times[i-1];
     if(Math.Abs(delta-step)>.001&&!(i==times.Length-1&&delta>=step&&delta<=.5))gaps.Add((i,delta));
    }

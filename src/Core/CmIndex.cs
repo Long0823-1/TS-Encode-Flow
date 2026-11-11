@@ -11,6 +11,12 @@ using System.Threading.Tasks;
 
 namespace TsEncodeFlow {
  public static class CmIndex {
+  public static bool Complete(string file) {
+   if(!File.Exists(file))return false;
+   using var reader=new StreamReader(file,Encoding.ASCII);
+   if(reader.ReadLine()!="<LSMASHWorksIndexVersion=0.0.2.0>"||reader.ReadLine()!="<LibavReaderIndexFile=13>")return false;
+   string line;while((line=reader.ReadLine())!=null){if(line=="</LibavReaderIndex>")return true;if(line.IndexOf('\0')>=0)return false;}return false;
+  }
   public static string Key(string input)=>Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Path.GetFullPath(input).ToUpperInvariant())));
   public static async Task<FileStream> Lock(string input,CancellationToken token) {
    string dir=Path.Combine(Path.GetTempPath(),"TS-Encode-Flow-IndexLocks");Directory.CreateDirectory(dir);
@@ -56,12 +62,19 @@ namespace TsEncodeFlow {
    if(decoded.Length==0||indexed.Length<decoded.Length)throw new InvalidDataException("CM解析と変換のフレーム列が一致しません。");
    int offset=Array.FindIndex(indexed,x=>Math.Abs(x-decoded[0])<.0005);
    if(offset<0||offset+decoded.Length>indexed.Length)throw new InvalidDataException("変換開始フレームをCMインデックス内で特定できません。");
-   int repaired=0;
-   for(int i=0;i<decoded.Length;i++)if(!double.IsFinite(decoded[i])||Math.Abs(indexed[offset+i]-decoded[i])>=.0005) {
-    if(double.IsFinite(decoded[i])&&repairFrameSeconds>0&&Math.Abs(indexed[offset+i]-decoded[i])<=repairFrameSeconds+.0005&&++repaired<=32)continue;
-    throw new InvalidDataException("CM解析と変換の途中でフレーム対応がずれています。再エンコードへ切り替えず停止しました。");
+   int repaired=0,run=0,groups=0;
+   for(int i=0;i<decoded.Length;i++) {
+    if(!double.IsFinite(decoded[i])||!double.IsFinite(indexed[offset+i])||Math.Abs(indexed[offset+i]-decoded[i])>=.0005) {
+     // Damaged MPEG B-pictures may differ between decoders for one or two
+     // frames, then return to the exact timestamp sequence. Require an exact
+     // anchor on BOTH sides, never accept a persistent offset or a large gap.
+     if(double.IsFinite(decoded[i])&&repairFrameSeconds>0&&Math.Abs(indexed[offset+i]-decoded[i])<=repairFrameSeconds+.0005&&++run<=2){repaired++;continue;}
+     throw new InvalidDataException("CM解析と変換の途中でフレーム対応がずれています。再エンコードへ切り替えず停止しました。");
+    }
+    if(run>0){groups++;run=0;}
    }
-   if(repaired>0)log?.Invoke("補正モード：破損境界のCMインデックス時刻差を許容しました（"+repaired+"フレーム、各最大1フレーム）。境界付近の映像・音声・CM位置を確認してください。");
+   if(run>0)throw new InvalidDataException("CM解析の末尾でフレーム対応が一致しません。自動適用を停止しました。");
+   if(repaired>0)log?.Invoke("補正モード：前後の時刻が再一致する破損境界の時刻差を許容しました（"+groups+"か所・"+repaired+"フレーム、各最大1フレーム・連続最大2フレーム）。境界付近の映像・音声・CM位置を確認してください。");
    return offset;
   }
  }

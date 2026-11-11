@@ -29,7 +29,7 @@ namespace TsEncodeFlow {
    string key=fingerprint+"|repair-v2|"+original.ServiceId+"|"+Store.Fingerprint(s.Ffmpeg);
    var previous=Store.Load(receipt,()=>new TimelineRepairReceipt());
    if(!File.Exists(output)||previous.Source!=key||previous.Output!=Store.Fingerprint(output)) {
-    j.Message="録画の時刻欠落を補正中（再エンコードなし）";changed();
+    StorageSpace.Require(output);j.Message="録画の時刻欠落を補正中（再エンコードなし）";changed();
     string pending=output+"."+Guid.NewGuid().ToString("N")+".tmp";
     try {
      var args=new List<string>{"-hide_banner","-nostdin","-loglevel","error","-y","-fflags","+genpts","-dts_delta_threshold","0.01","-i",j.Input,"-map","0:p:"+original.ServiceId,"-c","copy","-copy_unknown","-map_metadata","-1","-mpegts_service_id",original.ServiceId.ToString(),"-muxdelay","0"};
@@ -42,7 +42,7 @@ namespace TsEncodeFlow {
      args.AddRange(new[]{"-bsf:v","setts=pts='if(gt(abs(PTS-DTS)*TB,0.5),DTS+1/("+Commercials.N(original.Fps)+"*TB),PTS)'"});
      args.AddRange(new[]{"-f","mpegts",pending});
      var result=await Processes.Run(s.Ffmpeg,args,token,log);
-     if(result.ExitCode!=0||!File.Exists(pending)||new FileInfo(pending).Length<188)throw new InvalidDataException("録画の時刻補正に失敗しました："+Converter.Tail(result.Error));
+     if(result.ExitCode!=0||!File.Exists(pending)||new FileInfo(pending).Length<188)throw new InvalidDataException("録画の時刻補正に失敗しました："+StorageSpace.Failure(result.Error,result.ExitCode,pending));
      token.ThrowIfCancellationRequested();if(Store.Fingerprint(j.Input)!=fingerprint)throw new IOException("時刻補正中に元TSが変更されました。");
      File.Move(pending,output,true);Store.Save(receipt,new TimelineRepairReceipt {Source=key,Output=Store.Fingerprint(output)});
     }finally{if(File.Exists(pending))File.Delete(pending);}
@@ -64,7 +64,8 @@ namespace TsEncodeFlow {
      token.ThrowIfCancellationRequested();File.Move(pending,frames,true);File.WriteAllText(identity,frameKey);
     }finally{if(File.Exists(pending))File.Delete(pending);}
    }
-   var times=CmAnalysis.ReadFrameTimes(frames,m.VideoStart);CmAnalysis.ValidateTimeline(times,times.Length,m);
+   var times=CmAnalysis.ReadFrameTimes(frames,m.VideoStart);
+   try{CmAnalysis.ValidateTimeline(times,times.Length,m);}catch(InvalidDataException e){throw new InvalidDataException("補正後も映像の時間軸が不正なため、自動処理を停止しました。録画の破損を確認してください。詳細："+e.Message,e);}
    if(Store.Fingerprint(j.Input)!=fingerprint)throw new IOException("時刻検証中に元TSが変更されました。");
    j.WorkingInput=output;j.Metadata=m;
    j.TimelineRepair=new TimelineRepairReport {OriginalSeconds=original.Duration,RepairedSeconds=m.Duration,RemovedSeconds=Math.Max(0,original.Duration-m.Duration)};

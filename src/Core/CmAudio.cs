@@ -9,6 +9,7 @@ namespace TsEncodeFlow {
  // L-SMASH audio reader spin indefinitely. Decode only audio once, bounded to
  // the already verified video timeline; video is still read directly from TS.
  public static class CmAudio {
+  public static string TemporaryPath(Job job,Settings settings,string data)=>Path.Combine(EncodeCache.WorkFolder(data,settings,job),"cm-audio-"+Guid.NewGuid().ToString("N")+".wav");
   public static string Filter(Metadata m) {
    string N(double n)=>n.ToString("R",CultureInfo.InvariantCulture);
    double offset=m.VideoStart-m.AudioStart;

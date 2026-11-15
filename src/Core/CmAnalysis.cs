@@ -122,7 +122,7 @@ namespace TsEncodeFlow {
     }
     var logo=await Processes.Run(logoExe,logoArgs,token,log);return logo.ExitCode==0&&File.Exists(logoOutput)&&new FileInfo(logoOutput).Length>0;
    },token,log);
-   string pcm=Path.Combine(work,"chapter-audio.wav"),chapterAvs=Path.Combine(work,"chapter.avs");
+    string pcm=CmAudio.TemporaryPath(job,settings,data),chapterAvs=Path.Combine(work,"chapter.avs");
    try {
     job.Message="CM解析用の音声を準備中（映像の中間出力なし）";changed();await CmAudio.Prepare(job,settings,pcm,token,log);
     // Keep the exact same aligned video frames as logoframe. Only substitute

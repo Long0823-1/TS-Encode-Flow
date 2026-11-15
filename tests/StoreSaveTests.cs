@@ -5,6 +5,10 @@ using TsEncodeFlow;
 
 static partial class Tests {
  static void StoreSaveTests(string root) {
+  var audioJob=new Job();var audioSettings=new Settings {EncodeCacheFolder=Path.Combine(root,"CustomCache")};
+  string pcm=CmAudio.TemporaryPath(audioJob,audioSettings,root);
+  Check(pcm.StartsWith(EncodeCache.Root(root,audioSettings.EncodeCacheFolder)+Path.DirectorySeparatorChar)&&audioJob.EncodeCacheFolders.Contains(audioSettings.EncodeCacheFolder),"CM PCM uses selected managed cache and registers for cleanup");
+  Check(pcm!=CmAudio.TemporaryPath(audioJob,audioSettings,root),"parallel CM attempts have unique PCM files");
   string folder=Path.Combine(root,"AtomicSave");Directory.CreateDirectory(folder);
   foreach(bool backup in new[]{false,true}) {
    string file=Path.Combine(folder,backup?"backup.json":"queue.json");Store.Save(file,new[]{1});Store.Save(file,new[]{2});

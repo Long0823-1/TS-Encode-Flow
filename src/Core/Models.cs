@@ -207,8 +207,11 @@ namespace TsEncodeFlow {
    return text;
   }
   public static string Render(string template,Metadata m,Preset p) {
+   string title=string.IsNullOrWhiteSpace(m.Title)?m.OriginalName:m.Title;
+   string withoutEpisode=Regex.Replace(title??"",@"(?:[#＃]\s*([0-9０-９]+)|第\s*([0-9０-９]+)\s*話)",match=>{string n=(match.Groups[1].Success?match.Groups[1].Value:match.Groups[2].Value).Normalize(NormalizationForm.FormKC);return int.TryParse(n,out int a)&&int.TryParse(m.Episode,out int b)&&a==b?"":match.Value;}).Trim();
    var values=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase){{"Title",string.IsNullOrWhiteSpace(m.Title)?m.OriginalName:m.Title},{"Channel",string.IsNullOrWhiteSpace(m.Channel)?"不明局":m.Channel},{"OriginalName",m.OriginalName},{"ServiceId",m.ServiceId.ToString()},{"EventId",m.EventId.ToString()},{"NetworkId",m.NetworkId.ToString()},{"TransportId",m.TransportId.ToString()},{"Episode",m.Episode},{"Width",m.Width.ToString()},{"Height",m.Height.ToString()},{"Codec",p.Codec.ToString()},{"Engine",p.Engine.ToString()}};
-   var conditions=new Dictionary<string,string>(values,StringComparer.OrdinalIgnoreCase);conditions["Channel"]=m.Channel??"";conditions["Title"]=m.Title??"";conditions["Start"]=m.Start==default?"":m.Start.ToString("yyyyMMdd_HHmm",CultureInfo.InvariantCulture);
+    values["TitleWithoutEpisode"]=withoutEpisode;
+    var conditions=new Dictionary<string,string>(values,StringComparer.OrdinalIgnoreCase);conditions["Channel"]=m.Channel??"";conditions["Title"]=m.Title??"";conditions["Start"]=m.Start==default?"":m.Start.ToString("yyyyMMdd_HHmm",CultureInfo.InvariantCulture);
    template=NameConditions.Expand(template,conditions);
    string result=Regex.Replace(template,@"\{([^{}:]+)(?::([^{}]+))?\}",match=> {
     if(match.Groups[1].Value.Equals("Start",StringComparison.OrdinalIgnoreCase))return Safe(m.Start.ToString(match.Groups[2].Success?match.Groups[2].Value:"yyyyMMdd_HHmm",CultureInfo.InvariantCulture));

@@ -86,11 +86,23 @@ namespace TsEncodeFlow {
     string manifest=script+".json";File.WriteAllText(manifest,JsonSerializer.Serialize(files),Encoding.UTF8);
     string header="$src="+Q(stage)+"\n$dst="+Q(appFolder)+"\n$data="+Q(Path.GetFullPath(data))+"\n$manifest="+Q(manifest)+"\n$self="+Environment.ProcessId+"\n";
     File.WriteAllText(script,header+ApplyScript,new UTF8Encoding(true));state.Phase="applying";Write(data,state);
-    Process.Start(new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),"WindowsPowerShell/v1.0/powershell.exe"),"-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "+Processes.Quote(script)){UseShellExecute=false,CreateNoWindow=true,WorkingDirectory=StagingRoot(data)});return true;
+    Process.Start(new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),"WindowsPowerShell/v1.0/powershell.exe"),"-NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File "+Processes.Quote(script)){UseShellExecute=false,CreateNoWindow=true,WorkingDirectory=StagingRoot(data)});return true;
    }catch(Exception e){state.Phase="error";state.Error=e.Message;Write(data,state);return false;}
   }
   public const string ApplyScript="""
 $ErrorActionPreference='Stop'
+$form=$null
+try {
+ Add-Type -AssemblyName System.Windows.Forms
+ $form=New-Object Windows.Forms.Form
+ $form.Text='TS Encode Flow - 更新中';$form.Width=520;$form.Height=170;$form.StartPosition='CenterScreen';$form.ControlBox=$false
+ $label=New-Object Windows.Forms.Label;$label.Left=20;$label.Top=20;$label.Width=465;$label.Height=45;$form.Controls.Add($label)
+ $bar=New-Object Windows.Forms.ProgressBar;$bar.Left=20;$bar.Top=75;$bar.Width=465;$bar.Style='Continuous';$form.Controls.Add($bar)
+ $form.Show()
+} catch {$form=$null}
+function Progress($text,$value){if($null -ne $form){$label.Text=$text;$bar.Value=[Math]::Min(100,[Math]::Max(0,[int]$value));[Windows.Forms.Application]::DoEvents()}}
+Progress 'アプリとワーカーの終了を待っています…' 0
+
 $stateFile=Join-Path $data 'update-state.json'
 $log=Join-Path $data 'update-install.log'
 $copied=New-Object System.Collections.Generic.List[object]
@@ -104,21 +116,29 @@ try {
   $processes=@(Get-CimInstance Win32_Process|Where-Object {$_.ProcessId -eq $self -or $_.ExecutablePath -eq (Join-Path $dst 'TS-Encode-Flow.exe') -or $_.ExecutablePath -eq (Join-Path $dst 'Worker\TS-Encode-Worker.exe')})
   if($processes.Count -eq 0){break}
   if([DateTime]::UtcNow -gt $deadline){throw 'The app or worker did not exit. No installed files were changed.'}
-  Start-Sleep -Milliseconds 500
+  Progress 'アプリとワーカーの終了を待っています…' 0
+  Start-Sleep -Milliseconds 100
  }while($true)
  $entries=Get-Content -LiteralPath $manifest -Raw|ConvertFrom-Json
  # Validate every target and stage hash before the first mutation.
- foreach($entry in $entries){$source=Scoped $src $entry.Relative;$target=Scoped $dst $entry.Relative;if((Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash -ne $entry.Hash){throw 'Staged update changed'};$parent=Split-Path $target;while($parent -and $parent.Length -ge $dst.Length){if((Test-Path -LiteralPath $parent) -and ((Get-Item -LiteralPath $parent -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'Linked update target'};$parent=Split-Path $parent};if((Test-Path -LiteralPath $target) -and ((Get-Item -LiteralPath $target -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'Linked update target'}}
- foreach($entry in $entries){$source=Scoped $src $entry.Relative;$target=Scoped $dst $entry.Relative;$old=Scoped $backup $entry.Relative;$existed=Test-Path -LiteralPath $target;if($existed){New-Item -ItemType Directory -Path (Split-Path $old) -Force|Out-Null;Copy-Item -LiteralPath $target -Destination $old};$copied.Add(@{Target=$target;Old=$old;Existed=$existed});New-Item -ItemType Directory -Path (Split-Path $target) -Force|Out-Null;Copy-Item -LiteralPath $source -Destination $target -Force}
+ $checked=0
+ foreach($entry in $entries){Progress ('更新ファイルを検証中 '+(++$checked)+' / '+$entries.Count) (10*$checked/[Math]::Max(1,$entries.Count));$source=Scoped $src $entry.Relative;$target=Scoped $dst $entry.Relative;if((Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash -ne $entry.Hash){throw 'Staged update changed'};$parent=Split-Path $target;while($parent -and $parent.Length -ge $dst.Length){if((Test-Path -LiteralPath $parent) -and ((Get-Item -LiteralPath $parent -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'Linked update target'};$parent=Split-Path $parent};if((Test-Path -LiteralPath $target) -and ((Get-Item -LiteralPath $target -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'Linked update target'}}
+ # Check installed file locks before changing any file. Never terminate unrelated holders.
+ $lockDeadline=[DateTime]::UtcNow.AddSeconds(15)
+ foreach($entry in $entries){$target=Scoped $dst $entry.Relative;if(Test-Path -LiteralPath $target){do{try{$handle=[IO.File]::Open($target,[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None);$handle.Dispose();break}catch{if([DateTime]::UtcNow -gt $lockDeadline){throw};Progress ('使用中ファイルの解放待ち: '+$entry.Relative) 10;Start-Sleep -Milliseconds 100}}while($true)}}
+ $done=0
+ foreach($entry in $entries){Progress ('ファイルを更新中 '+(++$done)+' / '+$entries.Count) (10+85*$done/[Math]::Max(1,$entries.Count));$source=Scoped $src $entry.Relative;$target=Scoped $dst $entry.Relative;$old=Scoped $backup $entry.Relative;$existed=Test-Path -LiteralPath $target;if($existed){New-Item -ItemType Directory -Path (Split-Path $old) -Force|Out-Null;Copy-Item -LiteralPath $target -Destination $old};$copied.Add(@{Target=$target;Old=$old;Existed=$existed});New-Item -ItemType Directory -Path (Split-Path $target) -Force|Out-Null;Copy-Item -LiteralPath $source -Destination $target -Force}
  State 'installed' ''
+ Progress '更新完了。アプリを起動しています…' 100
  Start-Process -FilePath (Join-Path $dst 'TS-Encode-Flow.exe') -ArgumentList @('--data',('"'+$data+'"'),'--no-update') -WorkingDirectory $dst -WindowStyle Normal
 }catch {
+ Progress '更新できませんでした。元の状態に戻しています…' 0
  $message=$_.Exception.Message
  for($i=$copied.Count-1;$i -ge 0;$i--){$item=$copied[$i];try{if($item.Existed){Copy-Item -LiteralPath $item.Old -Destination $item.Target -Force}else{Remove-Item -LiteralPath $item.Target -Force}}catch{$message+='; rollback: '+$_.Exception.Message}}
  State 'error' $message
  $message|Add-Content -LiteralPath $log -Encoding UTF8
  if(Test-Path -LiteralPath (Join-Path $dst 'TS-Encode-Flow.exe')){Start-Process -FilePath (Join-Path $dst 'TS-Encode-Flow.exe') -ArgumentList @('--data',('"'+$data+'"'),'--no-update') -WorkingDirectory $dst -WindowStyle Normal}
-}
+}finally{if($null -ne $form){$form.Close();$form.Dispose()}}
 """;
  }
 }

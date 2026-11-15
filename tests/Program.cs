@@ -79,6 +79,16 @@ static partial class Tests {
    Check(Commands.Filters(new Preset {Deinterlace=Deinterlace.YadifBob},m).Contains("send_field"),"bob selects field output");
    Check(Converter.EncoderProgress("[22.3%] 12666 frames, GPU 20%, VE 99%") == 22.3,"GPU progress reads encode percentage rather than GPU utilization");
    foreach(var engine in new[]{Engine.NVEncC,Engine.VCEEncC,Engine.QSVEncC}){var cmd=Commands.Hardware(new Settings(),new Preset {Engine=engine,Width=1280,Height=720},m,"in.ts","out.mp4");Check(cmd.Args.Contains("--vpp-yadif")&&cmd.Args.Contains("1280x720")&&cmd.Args.Contains(engine==Engine.QSVEncC?"--icq":"--cqp"),"hardware builder "+engine);}
+   foreach(var preset in PresetCatalog.Create().Where(p=>p.Engine!=Engine.CPU))foreach(bool prefiltered in new[]{false,true}) {
+    var cmd=Commands.Hardware(new Settings(),preset,m,prefiltered?"-":"in.ts","out.mp4",prefiltered);
+    string option=preset.Engine==Engine.QSVEncC?"--quality":"--preset";
+    int speed=cmd.Args.IndexOf(option);
+    Check(speed>=0&&cmd.Args[speed+1]==preset.Speed&&!cmd.Args.Contains(preset.Engine==Engine.QSVEncC?"--preset":"--quality"),"factory speed option "+preset.FactoryId+" prefiltered="+prefiltered);
+   }
+   foreach(var codec in Enum.GetValues<Codec>())foreach(string speed in new[]{"best","higher","high","balanced","fast","faster","fastest",""}) {
+    var cmd=Commands.Hardware(new Settings(),new Preset {Engine=Engine.QSVEncC,Codec=codec,Speed=speed},m,"in.ts","out.mp4");
+    Check(!cmd.Args.Contains("--preset")&&cmd.Args.Contains("--quality")==!string.IsNullOrEmpty(speed),"QSV quality option "+codec+" "+speed);
+   }
    // Exercise the same inbox route as the UI, keeping conversion paused.
    string retryInput=Path.Combine(root,"retry.ts"),retryData=Path.Combine(root,"RetryQueue");File.WriteAllText(retryInput,"fixture");
    using(var retryQueue=new QueueManager(retryData)) {

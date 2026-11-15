@@ -81,7 +81,7 @@ namespace TsEncodeFlow {
   public static Command Hardware(Settings s,Preset p,Metadata m,string input,string output,bool prefiltered=false,List<TimeRange> keep=null) {
    Validate(p);var c=new Command {Exe=p.Engine==Engine.NVEncC?s.Nvenc:p.Engine==Engine.VCEEncC?s.Vceenc:s.Qsvenc};var a=c.Args;
    a.AddRange(new[]{"--avsw","-i",input,"-c",p.Codec==Codec.H264?"h264":p.Codec==Codec.HEVC?"hevc":"av1"});
-   if(!string.IsNullOrWhiteSpace(p.Speed))a.AddRange(new[]{"--preset",p.Speed});
+   if(!string.IsNullOrWhiteSpace(p.Speed))a.AddRange(new[]{p.Engine==Engine.QSVEncC?"--quality":"--preset",p.Speed});
    if(p.RateMode==RateMode.Quality)a.AddRange(new[]{p.Engine==Engine.QSVEncC?"--icq":"--cqp",N(p.Quality)});else a.AddRange(new[]{p.RateMode==RateMode.CBR?"--cbr":"--vbr",N(p.Bitrate)});
    if(keep!=null)a.AddRange(new[]{"--trim",Commercials.HardwareTrim(keep,m.Fps)});
    if(!prefiltered) {

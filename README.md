@@ -30,6 +30,8 @@ EDCB／EPGTimerなどで録画したTSを、MP4・MKVへ変換するWindowsア�
 
 対応コーデック・10bit・GPUフィルタは機器とドライバーに依存します。CPU／AMDで実変換を検証しています。NVIDIA／Intelの実機検証は未実施です。
 
+速度・品質バランスはエンコーダーに合わせた引数で適用します。Intel QSV（QSVEncC）は `--quality balanced` などを使い、NVIDIA／AMDの `--preset` と区別します。保存済みプリセットや録画後BATも、更新後は同じ設定値のまま正しい引数で実行します。
+
 ## 最初の1本を変換する
 
 1. [Releases](https://github.com/Long0823-1/TS-Encode-Flow/releases/latest)から **`windows-x64.zip`** を取得し、全ファイルを展開します。`Source code`は開発用です。

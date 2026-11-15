@@ -7,6 +7,14 @@ using TsEncodeFlow;
 
 static partial class Tests {
  static void RepairUnitTests() {
+  var streams=new Metadata {VideoIndex=2,Fps=30000.0/1001,ServiceId=1056,SubtitleIndex=6,AudioTracks=new(){new(){Index=3},new(){Index=4}}};
+  var remux=TimelineRepair.RemuxArguments(new Job {Input="input.ts",Metadata=streams},"output.ts");
+  var maps=remux.Select((value,index)=>(value,index)).Where(x=>x.value=="-map").Select(x=>remux[x.index+1]).ToArray();
+  Check(maps.SequenceEqual(new[]{"0:2","0:3","0:4","0:6"}),"timeline repair copies validated video, every valid audio and subtitle, excluding unvalidated PID 5");
+  Check(!remux.Contains("0:p:1056")&&remux.IndexOf("-probesize")<remux.IndexOf("-i")&&remux.Contains("20000000"),"timeline repair uses bounded extended probing and explicit stream mapping");
+  streams.AudioTracks.Clear();streams.SubtitleIndex=-1;
+  remux=TimelineRepair.RemuxArguments(new Job {Input="input.ts",Metadata=streams},"output.ts");
+  Check(remux.Count(x=>x=="-map")==1&&remux.Contains("0:2"),"video-only repair does not enable automatic audio mapping");
   Check(!Store.Json.Deserialize<Preset>("{}").RepairTimeline,"older presets keep repair disabled");
   var m=new Metadata {AudioTracks=new(){new(){Index=1,SourceIndex=4},new(){Index=2,SourceIndex=7}}};
   Check(AdvancedOptions.Audio(new Preset {AudioStreams="7,4"},m)[0].Index==2,"explicit audio selection follows original indices after remux");
@@ -44,6 +52,22 @@ static partial class Tests {
    if(mode==2)Check(j.Commercials.OutputDuration>4.9&&j.Commercials.OutputDuration<5.1&&File.Exists(j.Output+".cm.json"),"AMD CM cut retains approved repaired timeline on retry");
   }
   Check(Store.Fingerprint(input)==fingerprint,"repair never modifies synthetic original");
+ }
+ static async Task RepairMappedRecording(string[] args) {
+  string folder=Path.GetFullPath(Option(args,"--repair-mapped-recording"));Directory.CreateDirectory(folder);
+  var s=Integration.LoadSettings(Path.GetFullPath(Option(args,"--tool-data")));s.EncodeCacheFolder=Path.Combine(folder,"Cache");
+  var j=new Job {Input=Path.GetFullPath(Option(args,"--input")),Preset=new Preset {RepairTimeline=true,Engine=Engine.VCEEncC,Speed="balanced",Width=1280,Height=720,KeepSubtitles=false},OutputFolder=Path.Combine(folder,"Output"),FileName="mapped-recording",LogFile=Path.Combine(folder,"Logs","convert.log")};
+  Directory.CreateDirectory(Path.GetDirectoryName(j.LogFile));string fingerprint=Store.Fingerprint(j.Input);
+  j.Metadata=await MetadataReader.Read(j.Input,s,0,CancellationToken.None,Console.WriteLine);
+  int tracks=j.Metadata.AudioTracks.Count;string subtitle=j.Metadata.SubtitleCodec;
+  await TimelineRepair.Prepare(j,s,folder,CancellationToken.None,Console.WriteLine,()=>{});
+  Check(j.Metadata.AudioTracks.Count==tracks&&j.Metadata.SubtitleCodec==subtitle,"real repair preserves valid audio tracks and subtitle");
+  Check(TimelineRepair.CachedInput(j,s,folder)==j.MediaInput,"repaired cache resolves after stream indices are remapped");
+  if(args.Contains("--repair-only")){Check(Store.Fingerprint(j.Input)==fingerprint,"repair-only original unchanged");return;}
+  await Converter.Convert(j,s,CancellationToken.None,Console.WriteLine,()=>{});
+  var decoded=await Processes.Run(s.Ffmpeg,new[]{"-v","error","-xerror","-i",j.Output,"-map","0:v:0","-map","0:a:0","-f","null","-"},CancellationToken.None);
+  Check(decoded.ExitCode==0,"mapped recording AMD H264 MP4 fully decodes");
+  Check(Store.Fingerprint(j.Input)==fingerprint,"mapped recording original unchanged");
  }
  static async Task RepairRecording(string[] args) {
   string folder=Path.GetFullPath(Option(args,"--repair-recording"));Directory.CreateDirectory(folder);

@@ -6,6 +6,7 @@ using TsEncodeFlow;
 static partial class Tests {
  static void StoreSaveTests(string root) {
   var named=new Metadata {Title="探偵はもう、死んでいる。Season2　＃5",Episode="5"};
+  NameConditions.Validate("{if:Episode}{TitleWithoutEpisode}　第{Episode}話{else}{Title}{endif}");
   Check(Names.Render("{if:Episode}{TitleWithoutEpisode}　第{Episode}話{else}{Title}{endif}",named,new Preset {Container=Container.mkv})=="探偵はもう、死んでいる。Season2　第5話.mkv","title macro removes matching episode while preserving Season2");
   named.Title="番組 第６話";Check(Names.Render("{TitleWithoutEpisode}",named,new Preset())=="番組 第６話.mp4","title macro preserves episode numbers that do not match metadata");
   var audioJob=new Job();var audioSettings=new Settings {EncodeCacheFolder=Path.Combine(root,"CustomCache")};

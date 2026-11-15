@@ -7,7 +7,7 @@ using System.Text.RegularExpressions;
 
 namespace TsEncodeFlow {
  public static class NameConditions {
-  static readonly string[] Fields={"Title","Channel","OriginalName","Start","ServiceId","EventId","NetworkId","TransportId","Episode","Width","Height","Codec","Engine"};
+  static readonly string[] Fields={"Title","TitleWithoutEpisode","Channel","OriginalName","Start","ServiceId","EventId","NetworkId","TransportId","Episode","Width","Height","Codec","Engine"};
   static readonly string[] Numbers={"ServiceId","EventId","NetworkId","TransportId","Episode","Width","Height"};
   sealed class Frame {public bool Parent,Condition,HasElse;}
   static bool Condition(string text,IDictionary<string,string> values) {

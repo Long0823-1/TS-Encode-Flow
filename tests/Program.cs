@@ -69,6 +69,7 @@ static partial class Tests {
 
   string root=Path.Combine(Path.GetTempPath(),"TS-Encode-Flow-tests-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(root);
   try {
+   StoreSaveTests(root);
    foreach(string arg in new[]{"abc","日本語 & test","C:\\path with spaces\\","quote\"test","","C:\\a\\\"b"})Check(Processes.Split(Processes.Quote(arg)).Single()==arg,"Windows argument roundtrip: "+arg);
    var m=new Metadata {Title="番組/特集:その1",OriginalName="source",Channel="局",Start=new DateTime(2026,10,31,13,0,0),Width=1440,Height=1080,Sar=4.0/3};var p=new Preset {Width=1280,Height=720};
    Check(Commands.Resolution(p,m).SequenceEqual(new[]{1280,720}),"anamorphic 1440x1080 becomes 16:9 1280x720");

@@ -165,10 +165,19 @@ namespace TsEncodeFlow {
   static Store(){Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);}
   public static JsonCodec Json=>new JsonCodec();
   public static T Clone<T>(T value)=>Json.Deserialize<T>(Json.Serialize(value));
+  static readonly object saveGate=new object();
   public static void Save(string file,object value) {
-   Directory.CreateDirectory(Path.GetDirectoryName(file));string temp=file+"."+Guid.NewGuid().ToString("N")+".tmp";
-   File.WriteAllText(temp,Json.Serialize(value),new UTF8Encoding(false));
-   if(File.Exists(file))File.Replace(temp,file,file+".bak");else File.Move(temp,file);
+   lock(saveGate) {
+    Directory.CreateDirectory(Path.GetDirectoryName(file));string temp=file+"."+Guid.NewGuid().ToString("N")+".tmp";
+    try {
+     File.WriteAllText(temp,Json.Serialize(value),new UTF8Encoding(false));
+     for(int attempt=0;;attempt++)try {
+      if(File.Exists(file))File.Replace(temp,file,file+".bak");else File.Move(temp,file);
+      break;
+     }catch(IOException)when(attempt<6&&File.Exists(temp)){System.Threading.Thread.Sleep(20<<attempt);}
+    }catch(IOException e){throw new IOException("データの保存に失敗しました："+file+"。ファイルまたはバックアップの使用中・アクセス権・空き容量を確認してください。",e);}
+    finally{try{if(File.Exists(temp))File.Delete(temp);}catch(IOException){}catch(UnauthorizedAccessException){}}
+   }
   }
   public static T Load<T>(string file,Func<T> factory) {
    if(!File.Exists(file))return factory();

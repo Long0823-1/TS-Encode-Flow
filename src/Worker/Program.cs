@@ -17,6 +17,7 @@ static class Program {
     if(enqueue==args.Length-1)throw new ArgumentException("TSファイルを指定してください。");
     string profileFile=Arg(args,"--profile",null);var profile=profileFile==null?null:Store.Load<BatchProfile>(profileFile,()=>throw new FileNotFoundException("BAT用プリセットがありません。",profileFile));
     if(profileFile!=null){if(profile==null)throw new InvalidDataException("BAT用プリセットがnullです。BATを作成し直してください。");profile.Validate();}
+    if(profile!=null)profile=profile.Resolve(Integration.LoadSettings(data));
     QueueManager.Submit(data,args.Skip(enqueue+1),profile);
     if(!args.Contains("--run")){Integration.Wake(Environment.ProcessPath,data);return 0;}
    }

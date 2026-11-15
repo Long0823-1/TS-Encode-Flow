@@ -5,6 +5,7 @@ sealed class AutomationView:ContentView {
  public AutomationView(EngineClient client,Action<string> notice) {
   var s=client.Settings;
   Preset batPreset=s.BatPresetIndex>=0&&s.BatPresetIndex<s.Presets.Count?s.Presets[s.BatPresetIndex]:client.Selected;
+  var followLatest=new Switch {IsToggled=true};
   var profile=Pixel.Text("",17,null,true);
   var engine=new Picker();engine.ItemsSource=Enum.GetValues<Engine>().Select(PresetCatalog.EngineName).ToList();engine.SelectedIndex=(int)batPreset.Engine;
   var preset=new Picker();List<Preset> available=[];bool loading=false;
@@ -12,12 +13,12 @@ sealed class AutomationView:ContentView {
   void RefreshPresets(){loading=true;available=s.Presets.Where(p=>(int)p.Engine==engine.SelectedIndex).ToList();preset.ItemsSource=available.Select(p=>p.Name+(p.Category=="カスタム"?"（カスタム）":"")).ToList();int index=available.IndexOf(batPreset);preset.SelectedIndex=index>=0?index:0;if(index<0&&available.Count>0)batPreset=available[0];loading=false;UpdateSummary();}
   engine.SelectedIndexChanged+=(sender,e)=>{RefreshPresets();s.BatPresetIndex=s.Presets.IndexOf(batPreset);client.Save();};
   preset.SelectedIndexChanged+=(sender,e)=>{if(loading||preset.SelectedIndex<0)return;batPreset=available[preset.SelectedIndex];s.BatPresetIndex=s.Presets.IndexOf(batPreset);client.Save();UpdateSummary();notice("録画後BAT用のプリセットを変更しました。新しく作成するBATに反映されます。");};RefreshPresets();
-  var bat=Pixel.Card(Pixel.Stack(Pixel.Pill("録画後の自動変換"),Pixel.Text("録画が終わったら、自動で変換",25,null,true),Pixel.Text("EPGTimerの録画後実行に登録するBATを作成します。\n画面を閉じていても、ワーカーがキューを処理します。",14,Pixel.Muted),Pixel.Field("変換方式",engine),Pixel.Field("録画後BATに使うプリセット",preset,"手動変換用とは別に選べます。自分で保存したカスタムプリセットも利用できます。"),profile,Pixel.Button("このプリセットで録画後BATを作成",async()=> {
+  var bat=Pixel.Card(Pixel.Stack(Pixel.Pill("録画後の自動変換"),Pixel.Text("録画が終わったら、自動で変換",25,null,true),Pixel.Text("EPGTimerの録画後実行に登録するBATを作成します。\n画面を閉じていても、ワーカーがキューを処理します。",14,Pixel.Muted),Pixel.Field("変換方式",engine),Pixel.Field("録画後BATに使うプリセット",preset,"手動変換用とは別に選べます。自分で保存したカスタムプリセットも利用できます。"),profile,Pixel.Row(Pixel.Text("プリセットの変更に自動追従"),followLatest),Pixel.Text("ON：実行時の最新プリセット・マクロ・動画保存先を使用。OFF：作成時の設定を固定。登録後のキューは変更しません。",12,Pixel.Muted),Pixel.Button("このプリセットで録画後BATを作成",async()=> {
    client.Save();string? path=await Pickers.Save("TS-Encode-Flow-録画後",".bat");if(path==null)return;
-   Integration.SaveBat(path,client.Worker,client.Data,s,batPreset);
+   Integration.SaveBat(path,client.Worker,client.Data,s,batPreset,followLatest.IsToggled);
    notice("BATとプリセット設定を保存しました。EPGTimerの録画後実行に登録してください。");
-   await Application.Current!.Windows[0].Page!.DisplayAlert("BATを作成しました","EPGTimerの録画設定 → 録画後実行に、このBATを指定してください。\n\n作成時のプリセット・保存先・ファイル名マクロを固定します。隣に作られる.profile.jsonと一緒に保存してください。\n\n_EDCBX_DIRECT_によるFilePath環境変数の受け渡しに対応したEDCB版が必要です。","わかりました");
-  },true),Pixel.Text("BATには作成時の設定を固定します。設定を変えた場合はBATを作り直してください。\n対応：EDCBXの環境変数によるBAT直接実行。",12,Pixel.Muted)),Color.FromArgb("#E8F0FE"));
+   await Application.Current!.Windows[0].Page!.DisplayAlert("BATを作成しました","EPGTimerの録画設定 → 録画後実行に、このBATを指定してください。\n\n追従ONのBATは、同じプリセットの編集内容・マクロ・動画保存先を次回実行時に反映します。OFFは作成時の設定を固定します。隣に作られる.profile.jsonと一緒に保存してください。\n\n_EDCBX_DIRECT_によるFilePath環境変数の受け渡しに対応したEDCB版が必要です。","わかりました");
+  },true),Pixel.Text("追従ONのBATは再作成不要です。既存の固定式BATを追従式へ変える場合は一度作り直してください。\n対応：EDCBXの環境変数によるBAT直接実行。",12,Pixel.Muted)),Color.FromArgb("#E8F0FE"));
   var folder=Pixel.Entry(s.WatchFolder,"録画TSが保存されるフォルダー");
   var watcher=new Switch {IsToggled=s.WatchEnabled};
   var quiet=Pixel.Entry(s.QuietSeconds.ToString());quiet.Keyboard=Keyboard.Numeric;

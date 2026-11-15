@@ -9,7 +9,15 @@ namespace TsEncodeFlow {
  public sealed class WorkerStatus {public bool Running,Paused;public int Pid,Active;public DateTime Updated;public string Message="";}
  public sealed class BatchProfile {
   public Preset Preset;public string OutputFolder,FileName;
+  public string LivePresetKey="";
+  public static string Key(Preset p)=>string.IsNullOrEmpty(p.FactoryId)?"custom:"+p.PresetId:"factory:"+p.FactoryId;
+  public BatchProfile Resolve(Settings settings) {
+   if(string.IsNullOrEmpty(LivePresetKey)){Validate();return Store.Clone(this);}
+   var p=settings.Presets.SingleOrDefault(p=>Key(p)==LivePresetKey)??throw new InvalidDataException("BATが参照するプリセットが削除されています。自動化画面からBATを作成し直してください。");
+   var resolved=new BatchProfile {Preset=Store.Clone(p),OutputFolder=settings.OutputFolder,FileName=string.IsNullOrWhiteSpace(p.FileName)?settings.FileName:p.FileName};resolved.Validate();return resolved;
+  }
   public void Validate() {
+   if(!string.IsNullOrEmpty(LivePresetKey)){if(!LivePresetKey.StartsWith("custom:",StringComparison.Ordinal)&&!LivePresetKey.StartsWith("factory:",StringComparison.Ordinal))throw new InvalidDataException("BATのプリセット参照が不正です。");return;}
    if(Preset==null)throw new InvalidDataException("BAT用プリセットが空です。自動化画面からBATを作成し直してください。");
    Commands.Validate(Preset);
    if(string.IsNullOrWhiteSpace(OutputFolder)||!Path.IsPathFullyQualified(OutputFolder)||string.IsNullOrWhiteSpace(FileName))throw new InvalidDataException("BAT用の保存先・ファイル名が不正です。BATを作成し直してください。");
@@ -34,8 +42,9 @@ namespace TsEncodeFlow {
    return "@echo off\r\nsetlocal DisableDelayedExpansion\r\nchcp 65001 >nul\r\nrem _EDCBX_DIRECT_\r\nrem _EDCBX_HIDE_\r\nrem EDCBX: recording-completed hook (FilePath environment variable)\r\nif not defined FilePath exit /b 2\r\n\""+Literal(Path.GetFullPath(worker))+"\" --data \""+Literal(Path.GetFullPath(data))+"\""+profileArg+" --enqueue \"%FilePath%\"\r\nexit /b %errorlevel%\r\n";
   }
   public static void SaveBat(string file,string worker,string data)=>File.WriteAllText(file,Bat(worker,data),new UTF8Encoding(false));
-  public static void SaveBat(string file,string worker,string data,Settings settings,Preset preset) {
-   var snapshot=new BatchProfile {Preset=Store.Clone(preset),OutputFolder=settings.OutputFolder,FileName=settings.FileName};snapshot.Validate();
+  public static void SaveBat(string file,string worker,string data,Settings settings,Preset preset,bool followLatest=true) {
+   if(followLatest&&!settings.Presets.Contains(preset))throw new ArgumentException("保存済みのプリセットを選択してください。");
+   var snapshot=new BatchProfile {Preset=Store.Clone(preset),OutputFolder=settings.OutputFolder,FileName=string.IsNullOrWhiteSpace(preset.FileName)?settings.FileName:preset.FileName,LivePresetKey=followLatest?BatchProfile.Key(preset):""};snapshot.Validate();
    string profile=file+".profile.json";Store.Save(profile,snapshot);
    File.WriteAllText(file,Bat(worker,data,profile),new UTF8Encoding(false));
   }

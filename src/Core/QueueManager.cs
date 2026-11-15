@@ -44,11 +44,12 @@ namespace TsEncodeFlow {
      return null;
     }
     var p=presetOverride??Settings.Presets[Math.Min(Math.Max(0,Settings.SelectedPreset),Settings.Presets.Count-1)];Commands.Validate(p);
-    var job=new Job {Input=path,Fingerprint=fingerprint,Preset=Store.Clone(p),PresetSource=automatic?"watch":presetOverride!=null?"bat":"manual",OutputFolder=Path.GetFullPath(outputFolder??Settings.OutputFolder),FileName=fileName??Settings.FileName};
+    var job=new Job {Input=path,Fingerprint=fingerprint,Preset=Store.Clone(p),PresetSource=automatic?"watch":presetOverride!=null?"bat":"manual",OutputFolder=Path.GetFullPath(outputFolder??Settings.OutputFolder),FileName=fileName??(string.IsNullOrWhiteSpace(p.FileName)?Settings.FileName:p.FileName)};
     job.LogFile=Path.Combine(DataFolder,"Logs",job.Id+".log");Jobs.Add(job);Save();return job;
    }
   }
   public static void Submit(string dataFolder,IEnumerable<string> paths,BatchProfile profile=null) {
+   if(profile!=null&&!string.IsNullOrEmpty(profile.LivePresetKey))profile=profile.Resolve(Integration.LoadSettings(dataFolder));
    profile?.Validate();
    string inbox=Path.Combine(dataFolder,"Inbox");Directory.CreateDirectory(inbox);
    string batch=DateTime.UtcNow.Ticks.ToString("D19")+"-"+Guid.NewGuid().ToString("N");int sequence=0;

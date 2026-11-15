@@ -11,6 +11,7 @@ namespace TsEncodeFlow {
    var matches=settings.Presets.Where(p=>string.IsNullOrEmpty(p.FactoryId)&&string.Equals(p.Name?.Trim(),saved.Name,StringComparison.OrdinalIgnoreCase)).ToList();
    Preset bat=settings.BatPresetIndex>=0&&settings.BatPresetIndex<settings.Presets.Count?settings.Presets[settings.BatPresetIndex]:null;
    bool batReplaced=bat!=null&&matches.Contains(bat);
+   saved.PresetId=matches.Count>0?matches[0].PresetId:Guid.NewGuid().ToString("N");
    if(matches.Count==0)settings.Presets.Add(saved);
    else {int index=settings.Presets.IndexOf(matches[0]);settings.Presets[index]=saved;foreach(var duplicate in matches.Skip(1))settings.Presets.Remove(duplicate);}
    settings.SelectedPreset=settings.Presets.IndexOf(saved);

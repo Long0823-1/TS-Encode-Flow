@@ -17,6 +17,8 @@ namespace TsEncodeFlow {
  public enum State { Waiting, Running, Completed, Failed, Cancelled, Interrupted, NeedsInput, NeedsCmReview, NeedsLogo, NeedsLogoReview }
  [TypeConverter(typeof(ExpandableObjectConverter))]
  public sealed class Preset {
+  [Browsable(false)] public string PresetId {get;set;}=Guid.NewGuid().ToString("N");
+  public string FileName {get;set;}="";
   [Browsable(false)] public string FactoryId {get;set;}="";
   [Browsable(false)] public string Category {get;set;}="カスタム";
   [Browsable(false)] public string Summary {get;set;}="自分好みの変換設定";

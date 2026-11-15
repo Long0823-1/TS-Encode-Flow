@@ -11,6 +11,7 @@ namespace TsEncodeFlow {
   static string N(int n)=>n.ToString(CultureInfo.InvariantCulture);
   public static string SarRatio(double sar){for(int den=1;den<=1000;den++){int num=(int)Math.Round(sar*den);if(num>0&&Math.Abs(num/sar/den-1)<0.0005)return num.ToString(CultureInfo.InvariantCulture)+":"+den.ToString(CultureInfo.InvariantCulture);}return "1:1";}
   public static void Validate(Preset p) {
+   if(!string.IsNullOrWhiteSpace(p.FileName))NameConditions.Validate(p.FileName);
    AdvancedOptions.Validate(p);
    if(p.AutoInverseTelecine&&!string.IsNullOrWhiteSpace(p.Fps))throw new ArgumentException("自動逆テレシネではFPS指定を空欄にしてください。");
    if(p.AutoInverseTelecine&&Processes.Split(p.ExtraArgs??"").Any(a=>new[]{"-vf","-filter","-filter_complex","-filter_complex_script","-r","-fps_mode","-vsync","--vpp-afs","--vpp-rff","--vpp-decimate","--vpp-mpdecimate","--fps","--avsync","--vpp-yadif","--vpp-bwdif"}.Contains(a.Split('=')[0].Split(':')[0].ToLowerInvariant())))throw new ArgumentException("自動逆テレシネと追加引数のFPS・時間フィルタは併用できません。");

@@ -6,6 +6,11 @@
     <Version Condition="'$(Version)'=='1.0.0'">0.6.24</Version>
     <ReleaseDir Condition="'$(ReleaseDir)'==''">$(MSBuildProjectDirectory)\..\build\release</ReleaseDir>
     <DefineConstants>ProductVersion=$(Version);SourceDir=$(ReleaseDir)</DefineConstants>
-    <SuppressIces>ICE38;ICE64;ICE91</SuppressIces>
+    <!-- ICE03: .NET satellite assemblies carry culture names (e.g. ja-JP) in their
+         version-resource Language field, which the harvester copies into the
+         File table; ICE03 wants numeric LCIDs. Validation-only for this
+         single-language package, so it is suppressed alongside the per-user
+         install ICEs (38/64/91). -->
+    <SuppressIces>ICE03;ICE38;ICE64;ICE91</SuppressIces>
   </PropertyGroup>
 </Project>

@@ -18,12 +18,14 @@ $hash=(Get-FileHash $msi -Algorithm SHA256).Hash
 
 # Read the generated ProductCode back from the MSI so the winget manifest is exact.
 $productCode=''
-$windowsInstaller=New-Object -ComObject WindowsInstaller.Installer
-$database=$windowsInstaller.GetType().InvokeMember('OpenDatabase','InvokeMethod',$null,$windowsInstaller,@($msi,0))
-$view=$database.GetType().InvokeMember('OpenView','InvokeMethod',$null,$database,@("SELECT Value FROM Property WHERE Property='ProductCode'"))
-$view.GetType().InvokeMember('Execute','InvokeMethod',$null,$view,$null) | Out-Null
-$record=$view.GetType().InvokeMember('Fetch','InvokeMethod',$null,$view,$null)
-if($record){ $productCode=$record.GetType().InvokeMember('StringData','GetProperty',$null,$record,1) }
+try {
+ $windowsInstaller=New-Object -ComObject WindowsInstaller.Installer
+ $database=$windowsInstaller.OpenDatabase($msi,0)
+ $view=$database.OpenView("SELECT Value FROM Property WHERE Property='ProductCode'")
+ $view.Execute()
+ $record=$view.Fetch()
+ if($record){ $productCode=$record.StringData(1) }
+}catch{ Write-Warning "ProductCode could not be read from the MSI: $_" }
 
 # Generate the winget manifest set (v1.6 schema) for microsoft/winget-pkgs.
 $winget=Join-Path $root 'build/winget'

@@ -36,11 +36,11 @@ EDCB／EPGTimerなどで録画したTSを、MP4・MKVへ変換するWindowsア�
 
 ## 最初の1本を変換する
 
-1. [Releases](https://github.com/Long0823-1/TS-Encode-Flow/releases/latest)から **`windows-x64.zip`** を取得し、全ファイルを展開します。`Source code`は開発用です。
+1. [Releases](https://github.com/Long0823-1/TS-Encode-Flow/releases/latest)から **`windows-x64.zip`** を取得し、全ファイルを展開します。`Source code`は開発用です。MSIインストーラー版（`TS-Encode-Flow-<版>-win-x64.msi`）も同じReleasesにあります。こちらは `%LocalAppData%\Programs\TS Encode Flow` へユーザー単位でインストールし、管理者権限は不要です。
 2. `TS-Encode-Flow.exe`を起動します。EXEだけを移動せず、`Worker`・`Tools`・DLLも一緒に残してください。
 3. **設定 → すべてダウンロードして適用**でツールを準備し、動画の保存先とファイル名マクロを設定します。
 4. **プリセット**で変換方式と用途を選びます。最初は「毎日の番組・バランス」などから試せます。
-5. **＋ TSを追加**で録画済みTSを選び、**変換キュー**で進捗を確認します。
+5. **＋ TSを追加**で録画済みTSを選び、**変換キュー**で進捗を確認します。入力は拡張子ではなくファイルの中身（MPEG-TSの同期バイト）で判定するため、`.m2ts`（188バイト／192バイトパケット）や拡張子のないTSもそのまま追加できます。
 
 対応OSはWindows 10 バージョン2004以降／Windows 11のx64です。.NET／MAUI関連の実行ファイルは配布ZIPに含まれます。GPUには対応ドライバーが別途必要です。
 

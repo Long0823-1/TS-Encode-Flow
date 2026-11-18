@@ -31,7 +31,7 @@ namespace TsEncodeFlow {
   public void Save(){lock(gate)Store.Save(Path.Combine(DataFolder,"queue.json"),Jobs);Changed?.Invoke();}
   public List<Job> Snapshot(){lock(gate)return Jobs.ToList();}
   public Job Enqueue(string path,bool automatic=false,Preset presetOverride=null,string outputFolder=null,string fileName=null) {
-   path=Path.GetFullPath(path);if(!File.Exists(path)||!path.EndsWith(".ts",StringComparison.OrdinalIgnoreCase))throw new ArgumentException("存在するTSファイルを指定してください："+path);
+   path=Path.GetFullPath(path);TransportStream.RequireRecognized(path);
    Settings.Validate();string fingerprint=Store.Fingerprint(path);
    lock(gate) {
     if(automatic&&processed.Contains(fingerprint))return null;
@@ -54,7 +54,7 @@ namespace TsEncodeFlow {
    string inbox=Path.Combine(dataFolder,"Inbox");Directory.CreateDirectory(inbox);
    string batch=DateTime.UtcNow.Ticks.ToString("D19")+"-"+Guid.NewGuid().ToString("N");int sequence=0;
    foreach(string path in paths) {
-    string full=Path.GetFullPath(path);if(!File.Exists(full)||!full.EndsWith(".ts",StringComparison.OrdinalIgnoreCase))throw new ArgumentException("TSが存在しません："+full);
+    string full=Path.GetFullPath(path);TransportStream.RequireRecognized(full);
     Store.Save(Path.Combine(inbox,batch+"-"+(sequence++).ToString("D6")+".json"),new Request {Path=full,Profile=profile});
    }
   }
@@ -77,7 +77,8 @@ namespace TsEncodeFlow {
     lastScan=DateTime.UtcNow;
     try {
      if(!Directory.Exists(Settings.WatchFolder))throw new IOException("監視フォルダーがありません。");
-     foreach(string file in Directory.EnumerateFiles(Settings.WatchFolder,"*.ts",Settings.Recursive?SearchOption.AllDirectories:SearchOption.TopDirectoryOnly)) {
+     foreach(string file in Directory.EnumerateFiles(Settings.WatchFolder,"*",Settings.Recursive?SearchOption.AllDirectories:SearchOption.TopDirectoryOnly)) {
+      if(TransportStream.PacketSize(file)==0)continue;
       string output=Path.GetFullPath(Settings.OutputFolder).TrimEnd('\\')+"\\";
       if(Path.GetFullPath(file).StartsWith(output,StringComparison.OrdinalIgnoreCase))continue;
       if(Stable(file))Enqueue(file,true);

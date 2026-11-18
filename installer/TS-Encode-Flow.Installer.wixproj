@@ -1,0 +1,11 @@
+<Project Sdk="WixToolset.Sdk/5.0.2">
+  <PropertyGroup>
+    <OutputName>TS-Encode-Flow-$(Version)-win-x64</OutputName>
+    <OutputType>Package</OutputType>
+    <!-- Version is normally passed by scripts/build-msi.ps1 from the app project. -->
+    <Version Condition="'$(Version)'=='1.0.0'">0.6.24</Version>
+    <ReleaseDir Condition="'$(ReleaseDir)'==''">$(MSBuildProjectDirectory)\..\build\release</ReleaseDir>
+    <DefineConstants>ProductVersion=$(Version);SourceDir=$(ReleaseDir)</DefineConstants>
+    <SuppressIces>ICE38;ICE64;ICE91</SuppressIces>
+  </PropertyGroup>
+</Project>

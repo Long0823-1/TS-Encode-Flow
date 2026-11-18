@@ -56,6 +56,14 @@ jobs:
           Compress-Archive -Path 'build/release/*' -DestinationPath $zip
           "ZIP=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append
           "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: Build MSI installer
+        shell: pwsh
+        run: |
+          ./scripts/build-msi.ps1 -SkipPublish
+          $version = (Select-String -Path 'src/App/EncodeFlow.App.csproj' -Pattern '<Version>([^<]+)</Version>').Matches[0].Groups[1].Value
+          $msi = "TS-Encode-Flow-$version-win-x64.msi"
+          Copy-Item "installer/bin/Release/$msi" $msi
+          "MSI=$msi" | Out-File -FilePath $env:GITHUB_ENV -Append
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
@@ -70,5 +78,5 @@ jobs:
         run: |
           $tag = if ($env:GITHUB_REF -like 'refs/tags/*') { $env:GITHUB_REF_NAME } else { 'v' + $env:VERSION }
           $stable = ($env:GITHUB_EVENT_NAME -eq 'push' -and $env:GITHUB_REF -like 'refs/tags/v*') -or '${{ inputs.stable }}' -eq 'true'
-          if ($stable) { gh release create $tag "${{ env.ZIP }}" --title "TS-Encode-Flow $tag" --generate-notes --latest }
-          else { gh release create $tag "${{ env.ZIP }}" --title "TS-Encode-Flow $tag" --generate-notes --prerelease }
+          if ($stable) { gh release create $tag "${{ env.ZIP }}" "${{ env.MSI }}" --title "TS-Encode-Flow $tag" --generate-notes --latest }
+          else { gh release create $tag "${{ env.ZIP }}" "${{ env.MSI }}" --title "TS-Encode-Flow $tag" --generate-notes --prerelease }

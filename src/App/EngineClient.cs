@@ -23,7 +23,7 @@ sealed class EngineClient {
  public void Refresh(){Jobs=Integration.ReadJobs(Data);Status=Integration.ReadStatus(Data);}
  public bool WorkerAlive=>Status.Running&&(DateTime.UtcNow-Status.Updated).TotalSeconds<5;
  public void Wake()=>Integration.Wake(Worker,Data);
- public int Add(IEnumerable<string> paths){Save();var files=paths.Where(p=>p.EndsWith(".ts",StringComparison.OrdinalIgnoreCase)).ToList();if(files.Count==0)throw new ArgumentException("TSファイルを選択してください。");QueueManager.Submit(Data,files);Wake();return files.Count;}
+ public int Add(IEnumerable<string> paths){Save();var files=paths.Where(p=>File.Exists(p)&&!TransportStream.IsDefinitelyNot(p)).ToList();if(files.Count==0)throw new ArgumentException("TSファイルを選択してください（拡張子ではなく、ファイルの中身で判定します）。");QueueManager.Submit(Data,files);Wake();return files.Count;}
  public void Send(string action,string? id=null){Integration.Send(Data,action,id);Wake();}
  public void Choose(Preset preset){Settings.SelectedPreset=Settings.Presets.IndexOf(preset);Save();}
  public void SavePreset(Preset preset) {

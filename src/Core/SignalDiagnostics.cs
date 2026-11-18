@@ -11,10 +11,14 @@ namespace TsEncodeFlow {
    if(r.Issues.Count>=10000){r.Truncated=true;return;}r.Issues.Add(new(){Seconds=Math.Max(0,time),Kind=kind,Detail=detail,Offset=offset,Approximate=approximate});
   }
   public static SignalReport Transport(string file,double duration,CancellationToken token,Action<double> progress=null) {
-   var r=new SignalReport {Fingerprint=Store.Fingerprint(file)};var counters=new Dictionary<int,int>();var previous=new Dictionary<int,byte[]>();using var input=File.OpenRead(file);byte[] packet=new byte[188];
+   var r=new SignalReport {Fingerprint=Store.Fingerprint(file)};var counters=new Dictionary<int,int>();var previous=new Dictionary<int,byte[]>();using var input=File.OpenRead(file);
+   // 192バイト形式（.m2ts）は4バイトヘッダを除いた188バイトを1パケットとして読む。
+   int stride=TransportStream.PacketSize(file);if(stride==0)stride=188;int header=TransportStream.HeaderOffset(stride);
+   byte[] raw=new byte[stride];byte[] packet=new byte[188];
    double firstPcr=-1,lastPcr=-1,wrap=0,prior=-1;const double period=(1L<<33)/90000.0;
-   while(input.ReadExactlyOrEnd(packet)) {
-    long offset=input.Position-188;if(r.Packets%16384==0){token.ThrowIfCancellationRequested();progress?.Invoke((double)input.Position/input.Length);}
+   while(input.ReadExactlyOrEnd(raw)) {
+    Array.Copy(raw,header,packet,0,188);
+    long offset=input.Position-stride;if(r.Packets%16384==0){token.ThrowIfCancellationRequested();progress?.Invoke((double)input.Position/input.Length);}
     bool approximate=firstPcr<0;double time=approximate?duration*offset/input.Length:Math.Max(0,lastPcr-firstPcr);
     if(packet[0]!=0x47){r.SyncErrors++;Issue(r,time,"同期ずれ","TSパケット境界の再同期",offset,true);input.Position=offset+1;continue;}
     r.Packets++;int pid=((packet[1]&31)<<8)|packet[2],control=(packet[3]>>4)&3,cc=packet[3]&15;

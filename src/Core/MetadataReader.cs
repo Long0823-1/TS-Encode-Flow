@@ -111,11 +111,13 @@ namespace TsEncodeFlow {
      if(init(0,out id)!=1)throw new InvalidDataException("EPG解析の初期化に失敗。");initialized=true;
      var clock=new EpgClock(m.PcrPid>=0?m.PcrPid:m.VideoPid);
      using var input=File.OpenRead(file);
+     int stride=TransportStream.PacketSize(file);if(stride==0)stride=188;int header=TransportStream.HeaderOffset(stride);
      void Scan(long position,long limit,bool anchor) {
-      input.Position=Math.Clamp(position,0,input.Length);long read=0;byte[] packet=new byte[188];
-      while(read<limit&&input.Read(packet,0,188)==188) {
-       read+=188;if(read%(188*1024)==0)token.ThrowIfCancellationRequested();
-       if(packet[0]!=0x47){input.Position-=187;continue;}
+      input.Position=Math.Clamp(position,0,input.Length);long read=0;byte[] raw=new byte[stride];byte[] packet=new byte[188];
+      while(read<limit&&input.Read(raw,0,stride)==stride) {
+       read+=stride;if(read%(stride*1024)==0)token.ThrowIfCancellationRequested();
+       if(raw[header]!=0x47){input.Position-=stride-1;continue;}
+       Array.Copy(raw,header,packet,0,188);
        if(anchor)clock.Add(packet);
        int pid=((packet[1]&31)<<8)|packet[2];if(pid<32)add(id,packet,188);
       }

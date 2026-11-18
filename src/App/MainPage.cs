@@ -73,7 +73,7 @@ sealed class MainPage:ContentPage {
   Dispatcher.StartTimer(TimeSpan.FromHours(6),()=>{_ = CheckUpdates();return true;});
  }
  async Task AddFiles(){var files=await Pickers.Files();if(files.Count>0){int n=client.Add(files);Notice(n+"本を追加しました。録画中のファイルは終了まで待機します。");Refresh();}}
- async Task AddFolder(){var folder=await Pickers.Folder();if(folder!=null){int n=client.Add(Directory.EnumerateFiles(folder,"*.ts"));Notice(n+"本を追加しました。");Refresh();}}
+ async Task AddFolder(){var folder=await Pickers.Folder();if(folder!=null){int n=client.Add(Directory.EnumerateFiles(folder,"*").Where(f=>TransportStream.PacketSize(f)>0));Notice(n+"本を追加しました。");Refresh();}}
  void Notice(string text)=>toast.Text=text;
  public void OpenSection(string name)=>Navigate(nav.ContainsKey(name)?name:"ダッシュボード");
  void Navigate(string name) {

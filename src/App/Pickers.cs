@@ -11,7 +11,7 @@ static class Pickers {
   if(result.ExitCode!=0)throw new IOException("Windowsのファイル選択画面を開けませんでした。\n"+result.Error);
   var selection=Store.Json.Deserialize<DialogResult>(result.Output);return selection.Cancelled?[]:selection.Paths;
  }
- public static Task<List<string>> Files(string extension=".ts")=>Choose("open",extension);
+ public static Task<List<string>> Files(string extension=".ts;.m2ts;.mts")=>Choose("open",extension);
  public static Task<List<string>> Images()=>Choose("open",".png;.jpg;.jpeg;.bmp;.webp");
  public static async Task<string?> Folder()=>(await Choose("folder","" )).FirstOrDefault();
  public static async Task<string?> Save(string name,string extension)=>(await Choose("save",extension,name)).FirstOrDefault();

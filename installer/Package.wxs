@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  MSI installer for TS Encode Flow (Issue #4: winget support).
+
+  Design notes:
+  - Per-user install into %LocalAppData%\Programs\TS Encode Flow. The app is an
+    unpackaged, self-contained MAUI app whose data already lives in
+    %LocalAppData%\TS-Encode-Flow, so no administrator rights are needed and the
+    existing ZIP distribution stays untouched.
+  - The package wraps the exact same publish output as the ZIP
+    (scripts/publish.ps1 -> build/release). It adds no files of its own except
+    a Start Menu shortcut.
+  - UpgradeCode is stable across releases; ProductCode and PackageCode are
+    generated per build, and MajorUpgrade handles in-place upgrades.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="TS Encode Flow"
+           Manufacturer="Long0823-1"
+           Version="$(var.ProductVersion)"
+           UpgradeCode="4d905698-8b86-4af6-bb1d-b8db6f9ef19e"
+           Scope="perUser"
+           Compressed="yes">
+    <SummaryInformation Description="録画TSをMP4・MKVへ変換するWindowsアプリ" />
+    <MajorUpgrade DowngradeErrorMessage="より新しいバージョンの TS Encode Flow が既にインストールされています。" />
+    <MediaTemplate EmbedCab="yes" />
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="ProgramsDir" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="TS Encode Flow" />
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="AppProgramsFolder" Name="TS Encode Flow" />
+    </StandardDirectory>
+
+    <!-- All published files (app, Worker, Tools, docs) as generated components. -->
+    <ComponentGroup Id="AppFiles" Directory="INSTALLFOLDER">
+      <Files Include="$(var.SourceDir)\**" />
+    </ComponentGroup>
+
+    <Component Id="StartMenuShortcut" Directory="AppProgramsFolder" Guid="f6e7e3c6-f223-483e-b511-8caebf6fabd7">
+      <Shortcut Id="AppShortcut"
+                Name="TS Encode Flow"
+                Description="録画TSをMP4・MKVへ変換"
+                Target="[INSTALLFOLDER]TS-Encode-Flow.exe"
+                WorkingDirectory="INSTALLFOLDER" />
+      <RemoveFolder Id="RemoveAppProgramsFolder" On="uninstall" />
+      <RegistryValue Root="HKCU" Key="Software\Long0823-1\TS Encode Flow" Name="installed" Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+    <Feature Id="Main" Title="TS Encode Flow" Level="1">
+      <ComponentGroupRef Id="AppFiles" />
+      <ComponentRef Id="StartMenuShortcut" />
+    </Feature>
+  </Package>
+</Wix>

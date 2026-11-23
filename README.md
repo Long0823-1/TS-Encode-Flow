@@ -194,8 +194,5 @@ CM解析は映像を元TSから直接読み取ります。無音検出には、�
 
 開発・検証・保守への支援は[Ko-fi](https://ko-fi.com/long0823)から受け付けています。
 
-## 関連記事
-
-ブログ「knowledge-storage.info」で関連する解説記事を公開しています。
 
 - [EPGTimer/EDCBの録画TSを自動でMP4・MKVへ。字幕も残せる「TS Encode Flow」を作りました](https://knowledge-storage.info/2026/10/31/edcb-ts-auto-mp4-mkv/)

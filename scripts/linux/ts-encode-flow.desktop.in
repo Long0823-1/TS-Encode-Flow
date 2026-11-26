@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=TS Encode Flow
+Comment=録画TSファイルをMP4/MKVへ変換する
+Exec=@DEST@/start.sh
+Icon=@DEST@/icon.png
+Terminal=false
+Categories=AudioVideo;Video;
+StartupWMClass=TS-Encode-Flow-Linux

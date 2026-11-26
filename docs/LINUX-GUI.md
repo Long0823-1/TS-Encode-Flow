@@ -104,3 +104,39 @@ TS-Encode-Flow-Linux --data <フォルダー> --screenshot <PNGパス> --section
 # 解析・比較画面に TS 診断（トランスポート解析）の結果を表示して描画する
 TS-Encode-Flow-Linux --data <フォルダー> --screenshot <PNGパス> --demo-signal <TSファイル>
 ```
+
+## 配布パッケージ（誰でもインストールできる形）
+
+`scripts/package-linux.sh` で、受け取った側が .NET SDK なしで導入できる自己完結型パッケージを作成します。
+
+```bash
+# 既定の出力先は ~/tsef-release（引数で変更可）
+scripts/package-linux.sh
+
+# ビルド済み CM ツールの場所を変える場合
+CM_TOOLS_DIR=~/tools/cm-linux scripts/package-linux.sh
+```
+
+出力は `TS-Encode-Flow-linux-x64-v<バージョン>.tar.gz`（バージョンは `src/App.Linux` の csproj から自動取得）です。中身は次のとおりです。
+
+- GUI とワーカー（self-contained linux-x64 で publish。.NET ランタイムの事前導入は不要）
+- `Tools/CaptionProbe`（GUI 側・ワーカー側の両方に実体を配置）
+- CM 解析ツール一式を `tools/cm/{bin,JL}` に同梱（logoframe / chapter_exe / join_logo_scp / libavisynth.so / plugins64/libLSMASHSource.so / JL スクリプト群）。GUI・ワーカーの `Tools/` から相対シンボリックリンクで接続され、設定の事前投入なしで自動検出されます
+- `install.sh` / `uninstall.sh` / `README-LINUX.md` / `.desktop` テンプレート / アイコン / ライセンス類
+
+CaptionProbe と CM ツールが手元に無い場合は、パッケージ作成の中で `scripts/build-native.sh` / `scripts/build-cm-tools.sh` により自動でビルドされます。
+
+### インストール / アンインストール（受け取った側）
+
+```bash
+tar -xzf TS-Encode-Flow-linux-x64-v<バージョン>.tar.gz
+cd TS-Encode-Flow-linux-x64-v<バージョン>
+./install.sh            # root 不要。既定の導入先は ~/.local/share/ts-encode-flow
+./install.sh <パス>     # 導入先を指定する場合
+```
+
+- `install.sh` は `~/.local/share/applications/` への `.desktop` 配置と `~/.local/bin/ts-encode-flow` リンクの作成まで行います。再実行するとそのまま上書きアップグレードします（冪等）。他人のフォルダーを誤って消さないよう、パッケージのマーカー（`.tsef-package`）を確認してから置き換えます。
+- ユーザーデータ（`~/.local/share/TS-Encode-Flow` の設定・キュー）には一切触れません。
+- ffmpeg / ffprobe が PATH に無い場合は、警告とディストリビューション別の導入ヒントを表示します（変換に必須のため同梱していません）。
+- `./uninstall.sh` は本体とランチャーのみを削除し、ユーザーデータは残します。
+- 起動はアプリケーションメニューの「TS Encode Flow」、コマンド `ts-encode-flow`、または導入先の `start.sh` から行います。

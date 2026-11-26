@@ -14,8 +14,10 @@ namespace TsEncodeFlow {
   public static bool Complete(string file) {
    if(!File.Exists(file))return false;
    using var reader=new StreamReader(file,Encoding.ASCII);
-   if(reader.ReadLine()!="<LSMASHWorksIndexVersion=0.0.2.0>"||reader.ReadLine()!="<LibavReaderIndexFile=13>")return false;
-   string line;while((line=reader.ReadLine())!=null){if(line=="</LibavReaderIndex>")return true;if(line.IndexOf('\0')>=0)return false;}return false;
+   string first=reader.ReadLine(),second=reader.ReadLine();bool v19=first=="<LSMASHWorksIndexVersion=0.0.3.0>"&&second=="<LibavReaderIndexFile=19>";
+   if(!v19&&(first!="<LSMASHWorksIndexVersion=0.0.2.0>"||second!="<LibavReaderIndexFile=13>"))return false;
+   string closing=v19?"</LibavReaderIndexFile>":"</LibavReaderIndex>";
+   string line;while((line=reader.ReadLine())!=null){if(line==closing)return true;if(line.IndexOf('\0')>=0)return false;}return false;
   }
   public static string Key(string input)=>Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Path.GetFullPath(input).ToUpperInvariant())));
   public static async Task<FileStream> Lock(string input,CancellationToken token) {
@@ -27,7 +29,21 @@ namespace TsEncodeFlow {
    var matches=new Dictionary<int,HashSet<long>>();
    using var reader=new StreamReader(file,Encoding.ASCII);
    var pattern=new Regex(@"^Index=(\d+),Type=(\d+),Codec=\d+,TimeBase=(\d+)/(\d+),POS=(-?\d+),PTS=(-?\d+),DTS=-?\d+,EDI=\d+$");
-   string line;while((line=reader.ReadLine())!=null&&line!="</LibavReaderIndex>") {
+   var infoPattern=new Regex(@"^<StreamInfo=(\d+),(\d+)>$");
+   var codecPattern=new Regex(@"^Codec=\d+,TimeBase=(\d+)/(\d+),");
+   var entryPattern=new Regex(@"^Index=(\d+),POS=(-?\d+),PTS=(-?\d+),DTS=-?\d+,EDI=\d+$");
+   var streams=new Dictionary<int,(int Type,double Num,double Den)>();int pending=-1,pendingType=0;
+   string line;while((line=reader.ReadLine())!=null&&line!="</LibavReaderIndex>"&&line!="</LibavReaderIndexFile>") {
+    var info=infoPattern.Match(line);if(info.Success){pending=int.Parse(info.Groups[1].Value);pendingType=int.Parse(info.Groups[2].Value);continue;}
+    if(pending>=0){var codec=codecPattern.Match(line);if(codec.Success)streams[pending]=(pendingType,double.Parse(codec.Groups[1].Value,CultureInfo.InvariantCulture),double.Parse(codec.Groups[2].Value,CultureInfo.InvariantCulture));pending=-1;continue;}
+    var entry=entryPattern.Match(line);
+    if(entry.Success) {
+     int stream19=int.Parse(entry.Groups[1].Value);if(!streams.TryGetValue(stream19,out var si)||si.Type!=type||si.Den<=0)continue;
+     long pos19=long.Parse(entry.Groups[2].Value,CultureInfo.InvariantCulture);if(!wanted.TryGetValue(pos19,out var times19))continue;
+     double time19=double.Parse(entry.Groups[3].Value,CultureInfo.InvariantCulture)*si.Num/si.Den;
+     if(!times19.Any(t=>Math.Abs(t-time19)<.0005))continue;
+     if(!matches.ContainsKey(stream19))matches[stream19]=new HashSet<long>();matches[stream19].Add(pos19);continue;
+    }
     var m=pattern.Match(line);if(!m.Success||int.Parse(m.Groups[2].Value)!=type)continue;
     long pos=long.Parse(m.Groups[5].Value,CultureInfo.InvariantCulture);if(!wanted.TryGetValue(pos,out var times))continue;
     double den=double.Parse(m.Groups[4].Value,CultureInfo.InvariantCulture);if(den<=0)continue;
@@ -41,7 +57,9 @@ namespace TsEncodeFlow {
   public static double[] Read(string file,int videoIndex,int expectedCount,out int[] widths,out int[] heights) {
    if(expectedCount<1||expectedCount>20000000)throw new InvalidDataException("CM解析のフレーム数が不正です。");
    using var reader=new StreamReader(file,Encoding.ASCII);
-   if(reader.ReadLine()!="<LSMASHWorksIndexVersion=0.0.2.0>"||reader.ReadLine()!="<LibavReaderIndexFile=13>")throw new InvalidDataException("未対応のCMインデックス形式です。自動適用を停止しました。");
+   string firstLine=reader.ReadLine(),secondLine=reader.ReadLine();
+   if(firstLine=="<LSMASHWorksIndexVersion=0.0.3.0>"&&secondLine=="<LibavReaderIndexFile=19>")return ReadV19(reader,videoIndex,expectedCount,out widths,out heights);
+   if(firstLine!="<LSMASHWorksIndexVersion=0.0.2.0>"||secondLine!="<LibavReaderIndexFile=13>")throw new InvalidDataException("未対応のCMインデックス形式です。自動適用を停止しました。");
    var frames=new List<(double Time,int Width,int Height)>();bool ended=false;string line;
    string prefix="Index="+videoIndex+",Type=0,";
    var pattern=new Regex(@"^Index=\d+,Type=0,Codec=\d+,TimeBase=(\d+)/(\d+),POS=-?\d+,PTS=(-?\d+),DTS=-?\d+,EDI=\d+$",RegexOptions.CultureInvariant);
@@ -57,6 +75,26 @@ namespace TsEncodeFlow {
    }
    if(!ended||frames.Count!=expectedCount)throw new InvalidDataException("CMインデックスが不完全、または解析映像のフレーム数と一致しません。");
    frames.Sort((a,b)=>a.Time.CompareTo(b.Time));widths=frames.Select(x=>x.Width).ToArray();heights=frames.Select(x=>x.Height).ToArray();return frames.Select(x=>x.Time).ToArray();
+  }
+  static double[] ReadV19(StreamReader reader,int videoIndex,int expectedCount,out int[] widths,out int[] heights) {
+   // 形式19（新しいL-SMASH-Works）: 時刻基数と解像度は<StreamInfo>にあり、エントリはPOS/PTS/DTSのみを持つ。
+   long num=0,den=0;int width=0,height=0;bool info=false,ended=false;
+   var infoPattern=new Regex(@"^<StreamInfo=(\d+),(\d+)>$");
+   var codecPattern=new Regex(@"^Codec=\d+,TimeBase=(\d+)/(\d+),.*Width=(\d+),Height=(\d+),");
+   var entryPattern=new Regex(@"^Index=(\d+),POS=-?\d+,PTS=(-?\d+),DTS=-?\d+,EDI=\d+$");
+   var times=new List<double>();string line;
+   while((line=reader.ReadLine())!=null) {
+    if(line=="</LibavReaderIndexFile>"){ended=true;break;}
+    var im=infoPattern.Match(line);if(im.Success){info=int.Parse(im.Groups[1].Value)==videoIndex&&int.Parse(im.Groups[2].Value)==0;continue;}
+    if(info){var cm=codecPattern.Match(line);if(cm.Success){num=long.Parse(cm.Groups[1].Value,CultureInfo.InvariantCulture);den=long.Parse(cm.Groups[2].Value,CultureInfo.InvariantCulture);width=int.Parse(cm.Groups[3].Value);height=int.Parse(cm.Groups[4].Value);}info=false;continue;}
+    var em=entryPattern.Match(line);if(!em.Success||int.Parse(em.Groups[1].Value)!=videoIndex)continue;
+    if(num<=0||den<=0)throw new InvalidDataException("CMインデックスの時刻形式が不正です。");
+    long pts=long.Parse(em.Groups[2].Value,CultureInfo.InvariantCulture);double time=(double)pts*num/den;if(!double.IsFinite(time))throw new InvalidDataException("CMインデックスの時刻が不正です。");
+    times.Add(time);if(times.Count>expectedCount)throw new InvalidDataException("CMインデックスと解析映像のフレーム数が一致しません。");
+   }
+   if(!ended||times.Count!=expectedCount)throw new InvalidDataException("CMインデックスが不完全、または解析映像のフレーム数と一致しません。");
+   if(width<1||height<1)throw new InvalidDataException("CMインデックスの解像度情報がありません。");
+   var order=times.Select((t,i)=>i).OrderBy(i=>times[i]).ToArray();widths=order.Select(_=>width).ToArray();heights=order.Select(_=>height).ToArray();return order.Select(i=>times[i]).ToArray();
   }
   public static int Align(double[] indexed,double[] decoded,double repairFrameSeconds=0,Action<string> log=null) {
    if(decoded.Length==0||indexed.Length<decoded.Length)throw new InvalidDataException("CM解析と変換のフレーム列が一致しません。");

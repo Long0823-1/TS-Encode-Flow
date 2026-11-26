@@ -24,6 +24,14 @@ static partial class Tests {
   string lgd=Path.Combine(root,"fake.lgd");WriteFakeLgd(lgd,300,20,120,48);
   var fromLgd=Delogo.ResolveArea(data,job,new Settings {CmLogo=lgd});
   Check(fromLgd.X==300&&fromLgd.Y==20&&fromLgd.Width==120&&fromLgd.Height==48,"delogo area resolves from LGD header");
+  // L-SMASH インデックス形式19（新しいL-SMASH-Worksが書く形式）も形式13と同じ契約で読める。
+  string lwi=Path.Combine(root,"index19.lwi");
+  File.WriteAllText(lwi,"<LSMASHWorksIndexVersion=0.0.3.0>\n<LibavReaderIndexFile=19>\n<StreamInfo=0,0>\nCodec=2,TimeBase=1/90000,Width=320,Height=180,Format=yuv420p\n</StreamInfo>\n<StreamInfo=1,1>\nCodec=86018,TimeBase=1/90000,Channels=2:0x3,Rate=48000,Format=fltp,BPS=32\n</StreamInfo>\nIndex=0,POS=188,PTS=90000,DTS=90000,EDI=0\nIndex=0,POS=376,PTS=93000,DTS=93000,EDI=0\nIndex=1,POS=564,PTS=90000,DTS=90000,EDI=0\nIndex=1,POS=752,PTS=91920,DTS=91920,EDI=0\n</LibavReaderIndexFile>\n");
+  Check(CmIndex.Complete(lwi),"v19 index is accepted as complete");
+  Check(CmIndex.MapStream(lwi,0,new[]{(188L,1.0),(376L,93000/90000.0)})==0,"v19 index maps the video stream by packet position and time");
+  Check(CmIndex.MapStream(lwi,1,new[]{(564L,1.0),(752L,91920/90000.0)})==1,"v19 index maps the audio stream by packet position and time");
+  var times19=CmIndex.Read(lwi,0,2,out var w19,out var h19);
+  Check(times19.Length==2&&Math.Abs(times19[0]-1.0)<1e-9&&Math.Abs(times19[1]-93000/90000.0)<1e-9&&w19.All(x=>x==320)&&h19.All(x=>x==180),"v19 index reads frame times and geometry");
   string emptyData=Path.Combine(root,"LinuxDelogoEmpty");Directory.CreateDirectory(emptyData);
   bool areaThrew=false;try{Delogo.ResolveArea(emptyData,job,new Settings());}catch(LogoAreaRequiredException){areaThrew=true;}
   Check(areaThrew,"delogo without logo or area fails explicitly");

@@ -174,12 +174,19 @@ namespace TsEncodeFlow {
     try {
      File.WriteAllText(temp,Json.Serialize(value),new UTF8Encoding(false));
      for(int attempt=0;;attempt++)try {
+      ProbeSaveLock(file);
       if(File.Exists(file))File.Replace(temp,file,file+".bak");else File.Move(temp,file);
       break;
      }catch(IOException)when(attempt<6&&File.Exists(temp)){System.Threading.Thread.Sleep(20<<attempt);}
     }catch(IOException e){throw new IOException("データの保存に失敗しました："+file+"。ファイルまたはバックアップの使用中・アクセス権・空き容量を確認してください。",e);}
     finally{try{if(File.Exists(temp))File.Delete(temp);}catch(IOException){}catch(UnauthorizedAccessException){}}
    }
+  }
+  // POSIXでは他のプロセスが開いているファイルもrenameできてしまうため、Windowsと同様に共有違反として検出する。
+  static void ProbeSaveLock(string file) {
+   if(OperatingSystem.IsWindows()||!File.Exists(file))return;
+   using(var probe=new FileStream(file,FileMode.Open,FileAccess.Read,FileShare.None)){}
+   string bak=file+".bak";if(File.Exists(bak))using(var probe=new FileStream(bak,FileMode.Open,FileAccess.Read,FileShare.None)){}
   }
   public static T Load<T>(string file,Func<T> factory) {
    if(!File.Exists(file))return factory();

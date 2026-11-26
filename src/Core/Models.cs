@@ -8,7 +8,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 
 namespace TsEncodeFlow {
- public enum Engine { CPU, NVEncC, VCEEncC, QSVEncC }
+ public enum Engine { CPU, NVEncC, VCEEncC, QSVEncC, Vaapi }
  public enum Codec { H264, HEVC, AV1 }
  public enum Container { mp4, mkv }
  public enum SubtitleMode { Convert, AribRaw, Both }
@@ -103,6 +103,7 @@ namespace TsEncodeFlow {
   [Category("3. ツール"),DisplayName("NVEncC64.exe")] public string Nvenc {get;set;}="";
   [Category("3. ツール"),DisplayName("VCEEncC64.exe")] public string Vceenc {get;set;}="";
   [Category("3. ツール"),DisplayName("QSVEncC64.exe")] public string Qsvenc {get;set;}="";
+  [Category("3. ツール"),DisplayName("VA-APIデバイス"),Description("LinuxのVA-APIエンコードで使うDRMデバイス。空欄なら /dev/dri/renderD128。")] public string VaapiDevice {get;set;}="";
   [Category("3. ツール"),DisplayName("EDCB EpgDataCap3.dll"),Description("任意。TSのEIT/SDTを日本語にデコードするEDCB x64のDLL。未指定でも.program.txtを利用できます。")]
   public string EpgDll {get;set;}="";
   public string Comskip {get;set;}="";

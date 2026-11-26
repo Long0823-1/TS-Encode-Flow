@@ -14,7 +14,32 @@ namespace TsEncodeFlow {
    try{using(var f=File.Open(file,FileMode.Open,FileAccess.Read,FileShare.Read)){return f.Length>0;}}catch(IOException){return false;}catch(UnauthorizedAccessException){return false;}
   }
   public static bool ClosedEmptyRecording(string file) {
+   if(!OperatingSystem.IsWindows()) {
+    try{if(new FileInfo(file).Length!=0)return false;}catch(IOException){return false;}catch(UnauthorizedAccessException){return false;}
+    return !WriterHeld(file);
+   }
    try{using var f=File.Open(file,FileMode.Open,FileAccess.Read,FileShare.Read);return f.Length==0;}catch(IOException){return false;}catch(UnauthorizedAccessException){return false;}
+  }
+  // LinuxではFileShareで書き込み保持を検出できないため、/procのfdリンクとfdinfoのアクセスモード（O_WRONLY/O_RDWR）で書き込み中のプロセスがいるかを調べる。
+  static bool WriterHeld(string file) {
+   try {
+    if(!Directory.Exists("/proc"))return false;
+    string full=Path.GetFullPath(file);
+    foreach(string pidDir in Directory.EnumerateDirectories("/proc")) {
+     if(!int.TryParse(Path.GetFileName(pidDir),out _))continue;
+     string[] fds;try{fds=Directory.GetFiles(Path.Combine(pidDir,"fd"));}catch{continue;}
+     foreach(string fd in fds) {
+      try {
+       string target=File.ResolveLinkTarget(fd,false)?.FullName;if(target==null)continue;
+       if(target.EndsWith(" (deleted)"))target=target.Substring(0,target.Length-10);
+       if(!string.Equals(target,full,StringComparison.Ordinal))continue;
+       var match=Regex.Match(File.ReadAllText(Path.Combine(pidDir,"fdinfo",Path.GetFileName(fd))),@"(?m)^flags:\s*([0-7]+)");if(!match.Success)continue;
+       if((System.Convert.ToInt32(match.Groups[1].Value,8)&3)!=0)return true;
+      }catch{}
+     }
+    }
+   }catch{}
+   return false;
   }
   public static async Task Convert(Job j,Settings settings,CancellationToken token,Action<string> log,Action changed) {
    j.WorkingInput="";j.TimelineRepair=null;Commands.Validate(j.Preset);if(!WritableRecording(j.Input))throw new IOException("入力が録画中または読み取りできません。");
@@ -40,10 +65,10 @@ namespace TsEncodeFlow {
     if(subtitle=="arib-raw")subtitle=await Subtitles.CutRawSubtitles(j,settings,folder,log,token);
     else subtitle=Commercials.CutSubtitles(j,subtitle,folder,log);
     // Delogo builds its intermediate already CM-trimmed (AVS Trim), so no trim filter is needed for it.
-    if(delogoInput==null&&(j.Preset.Engine==Engine.CPU||j.Metadata.InverseTelecine)){cutFilter=Path.Combine(folder,"trim-filter.txt");File.WriteAllText(cutFilter,Commercials.Filter(keep,j.Metadata,Commands.Filters(j.Preset,j.Metadata)));}
+    if(delogoInput==null&&(j.Preset.Engine==Engine.CPU||j.Preset.Engine==Engine.Vaapi||j.Metadata.InverseTelecine)){cutFilter=Path.Combine(folder,"trim-filter.txt");File.WriteAllText(cutFilter,Commercials.Filter(keep,j.Metadata,Commands.Filters(j.Preset,j.Metadata)));}
    }
    string root=Path.GetFullPath(j.OutputFolder),relative=Names.Render(j.FileName,j.Metadata,j.Preset);
-   string desired=Path.GetFullPath(Path.Combine(root,relative));if(!desired.StartsWith(root.TrimEnd('\\')+"\\",StringComparison.OrdinalIgnoreCase))throw new ArgumentException("出力先が保存フォルダーの範囲外です。");
+   string desired=Path.GetFullPath(Path.Combine(root,relative));if(!desired.StartsWith(root.TrimEnd(Path.DirectorySeparatorChar)+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase))throw new ArgumentException("出力先が保存フォルダーの範囲外です。");
    if(desired.Length>200)throw new ArgumentException("出力パスが長すぎます。マクロや保存先を短くしてください。");
    Directory.CreateDirectory(Path.GetDirectoryName(desired));
    string final=null,reserve=null,temp=null,selected=null,muxed=null,cutAudio=null,audioFilter=null,audioMux=null,delogoAudio=null,delogoAudioFilter=null;FileStream reservation=null;
@@ -65,6 +90,10 @@ namespace TsEncodeFlow {
     bool advanced=AdvancedOptions.Enabled(p);
     if(advanced){j.Message="詳細パイプラインを開始中";changed();await AdvancedEncoder.Run(j,s,dataFolder,temp,token,log,changed);}
     else if(p.Engine==Engine.CPU)command=delogoInput==null?Commands.Ffmpeg(s,p,j.Metadata,j.MediaInput,temp,cutFilter:cutFilter):Commands.Ffmpeg(s,p,Delogo.VideoOnly(j.Metadata),delogoInput,temp);
+    else if(p.Engine==Engine.Vaapi) {
+     if(!Vaapi.Available(s))throw new FileNotFoundException("VA-APIエンコードを利用できません。ffmpegのVA-APIエンコーダーとデバイス "+Vaapi.Device(s)+"（Mesaドライバー）を確認してください。");
+     command=delogoInput==null?Commands.Vaapi(s,p,j.Metadata,j.MediaInput,temp,cutFilter):Commands.Vaapi(s,p,Delogo.VideoOnly(j.Metadata),delogoInput,temp);
+    }
     else {
      string encoder=p.Engine==Engine.NVEncC?s.Nvenc:p.Engine==Engine.VCEEncC?s.Vceenc:s.Qsvenc;if(!File.Exists(encoder))throw new FileNotFoundException("選択したGPUエンコーダーがありません。設定タブでパスを指定してください。",encoder);
      if(delogoInput!=null) {
@@ -91,7 +120,7 @@ namespace TsEncodeFlow {
     if(!advanced){j.Command=command.ToString();j.Message="変換中："+p.Engine;log(j.Command);changed();
     var encoded=await Processes.Run(command.Exe,command.Args,token,progress);
     if(encoded.ExitCode!=0)throw new InvalidDataException("変換失敗：終了コード"+encoded.ExitCode+"\n"+Tail(encoded.Error));}
-    if(!advanced&&keep!=null&&(p.Engine!=Engine.CPU||delogoInput!=null)&&(!j.Metadata.InverseTelecine||delogoInput!=null)&&j.Metadata.AudioIndex>=0) {
+    if(!advanced&&keep!=null&&((p.Engine!=Engine.CPU&&p.Engine!=Engine.Vaapi)||delogoInput!=null)&&(!j.Metadata.InverseTelecine||delogoInput!=null)&&j.Metadata.AudioIndex>=0) {
      j.Message="CM区間に合わせて音声を再構成中";changed();
      cutAudio=Path.Combine(Path.GetDirectoryName(final),".cut-audio-"+j.Id+".m4a");audioFilter=cutAudio+".filter";audioMux=Path.Combine(Path.GetDirectoryName(final),".cut-av-"+j.Id+Path.GetExtension(final));
      File.WriteAllText(audioFilter,Commercials.AudioFilter(keep,j.Metadata));

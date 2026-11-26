@@ -16,6 +16,7 @@ namespace TsEncodeFlow {
    if(p.AutoInverseTelecine&&!string.IsNullOrWhiteSpace(p.Fps))throw new ArgumentException("自動逆テレシネではFPS指定を空欄にしてください。");
    if(p.AutoInverseTelecine&&Processes.Split(p.ExtraArgs??"").Any(a=>new[]{"-vf","-filter","-filter_complex","-filter_complex_script","-r","-fps_mode","-vsync","--vpp-afs","--vpp-rff","--vpp-decimate","--vpp-mpdecimate","--fps","--avsync","--vpp-yadif","--vpp-bwdif"}.Contains(a.Split('=')[0].Split(':')[0].ToLowerInvariant())))throw new ArgumentException("自動逆テレシネと追加引数のFPS・時間フィルタは併用できません。");
    if(!Enum.IsDefined(p.CmMode)||!Enum.IsDefined(p.CmSource))throw new ArgumentException("CM出力設定が不正です。");
+   if(p.Engine==Engine.Vaapi&&p.Codec==Codec.AV1)throw new ArgumentException("VA-APIエンコードはAV1に未対応です（AV1エンコード機能を持たないGPUがあります）。H.264またはHEVCを選択してください。");
    if(p.CmMode==CmMode.Cut&&(p.CopyAudio||!string.IsNullOrWhiteSpace(p.Fps)))throw new ArgumentException("CMカット時は音声コピーをOFF、FPS指定を空欄にしてください。");
    if(!string.IsNullOrWhiteSpace(p.CmTrimFps)&&(MetadataReader.Ratio(p.CmTrimFps)<=0||MetadataReader.Ratio(p.CmTrimFps)>240||!double.IsFinite(MetadataReader.Ratio(p.CmTrimFps))))throw new ArgumentException("TrimのFPSが不正です。");
    if(p.Width<0||p.Height<0||p.Width>16384||p.Height>16384||p.Width%2!=0||p.Height%2!=0)throw new ArgumentException("幅・高さは0または2～16384の偶数で指定してください。");
@@ -79,8 +80,29 @@ namespace TsEncodeFlow {
    }
    a.AddRange(new[]{"-progress","pipe:1","-nostats",output});return c;
   }
+  public static Command Vaapi(Settings s,Preset p,Metadata m,string input,string output,string cutFilter=null) {
+   Validate(p);var c=new Command {Exe=s.Ffmpeg};var a=c.Args;
+   // VA-APIはCPU経路（FFmpeg）と同じ単一プロセス構成にし、映像だけをGPUへ渡す。フィルタはすべてソフトウェアで適用し、最後に format=nv12,hwupload でVA-APIサーフェスへ転送する。
+   // 品質値の対応: CPUのCRF・GPUツールのCQPと同じ「小さいほど高画質」の品質値を、そのままVA-APIの固定QP（-qp）として使う。VBR/CBRはCPU経路と同じ -b:v / -maxrate / -bufsize の組み合わせに寄せる。
+   a.AddRange(new[]{"-hide_banner","-nostdin","-y","-vaapi_device",global::TsEncodeFlow.Vaapi.Device(s),"-probesize","20000000","-analyzeduration","10000000","-i",input});
+   if(cutFilter!=null){string graph=File.ReadAllText(cutFilter)+";[vout]format=nv12,hwupload[vhw]";a.AddRange(new[]{"-filter_complex",graph,"-map","[vhw]"});if(m.AudioIndex>=0)a.AddRange(new[]{"-map","[aout]"});}
+   else {
+    a.AddRange(new[]{"-map","0:"+m.VideoIndex});if(m.AudioIndex>=0)a.AddRange(new[]{"-map","0:"+m.AudioIndex});
+    string filters=Filters(p,m);a.AddRange(new[]{"-vf",(filters.Length>0?filters+",":"")+"format=nv12,hwupload"});
+   }
+   a.AddRange(new[]{"-c:v",p.Codec==Codec.HEVC?"hevc_vaapi":"h264_vaapi"});
+   if(p.RateMode==RateMode.Quality)a.AddRange(new[]{"-qp",N(p.Quality)});
+   else {a.AddRange(new[]{"-b:v",p.Bitrate+"k"});if(p.RateMode==RateMode.CBR)a.AddRange(new[]{"-maxrate",p.Bitrate+"k","-bufsize",(p.Bitrate*2)+"k"});}
+   if(p.Threads>0)a.AddRange(new[]{"-threads",N(p.Threads)});
+   if(m.AudioIndex>=0) {a.AddRange(new[]{"-c:a",p.CopyAudio?"copy":"aac"});if(!p.CopyAudio)a.AddRange(new[]{"-b:a",p.AudioBitrate+"k"});}
+   a.AddRange(new[]{"-sn","-dn"});
+   a.AddRange(new[]{"-map_metadata","-1"});if(p.EmbedMetadata)a.AddRange(new[]{"-metadata","title="+m.Title,"-metadata","comment="+m.Channel});
+   if(p.Container==Container.mp4){a.AddRange(new[]{"-movflags","+faststart"});if(p.Codec==Codec.HEVC)a.AddRange(new[]{"-tag:v","hvc1"});}
+   a.AddRange(Processes.Split(p.ExtraArgs??""));
+   a.AddRange(new[]{"-progress","pipe:1","-nostats",output});return c;
+  }
   public static Command Hardware(Settings s,Preset p,Metadata m,string input,string output,bool prefiltered=false,List<TimeRange> keep=null) {
-   Validate(p);var c=new Command {Exe=p.Engine==Engine.NVEncC?s.Nvenc:p.Engine==Engine.VCEEncC?s.Vceenc:s.Qsvenc};var a=c.Args;
+   Validate(p);if(p.Engine==Engine.Vaapi)throw new ArgumentException("VA-APIのプリセットはCommands.Vaapiで組み立ててください。");var c=new Command {Exe=p.Engine==Engine.NVEncC?s.Nvenc:p.Engine==Engine.VCEEncC?s.Vceenc:s.Qsvenc};var a=c.Args;
    a.AddRange(new[]{"--avsw","-i",input,"-c",p.Codec==Codec.H264?"h264":p.Codec==Codec.HEVC?"hevc":"av1"});
    if(!string.IsNullOrWhiteSpace(p.Speed))a.AddRange(new[]{p.Engine==Engine.QSVEncC?"--quality":"--preset",p.Speed});
    if(p.RateMode==RateMode.Quality)a.AddRange(new[]{p.Engine==Engine.QSVEncC?"--icq":"--cqp",N(p.Quality)});else a.AddRange(new[]{p.RateMode==RateMode.CBR?"--cbr":"--vbr",N(p.Bitrate)});

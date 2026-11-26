@@ -1,4 +1,16 @@
+#ifdef _WIN32
 #include <windows.h>
+#else
+#include <cstdint>
+#include <cstring>
+#include <cstdlib>
+// Minimal packed equivalents of the Win32 BMP headers (identical layout/sizes).
+#pragma pack(push,2)
+struct BITMAPFILEHEADER {uint16_t bfType;uint32_t bfSize;uint16_t bfReserved1,bfReserved2;uint32_t bfOffBits;};
+struct BITMAPINFOHEADER {uint32_t biSize;int32_t biWidth,biHeight;uint16_t biPlanes,biBitCount;uint32_t biCompression,biSizeImage;int32_t biXPelsPerMeter,biYPelsPerMeter;uint32_t biClrUsed,biClrImportant;};
+#pragma pack(pop)
+#define sprintf_s(buf,...) snprintf(buf,sizeof(buf),__VA_ARGS__)
+#endif
 #include <aribcaption/decoder.hpp>
 #include <fstream>
 #include <filesystem>
@@ -37,10 +49,18 @@ public:
  }
 };
 static int64_t pts(const unsigned char* p){return (((int64_t)(p[0]&14))<<29)|((int64_t)p[1]<<22)|((int64_t)(p[2]&254)<<14)|((int64_t)p[3]<<7)|((p[4]&254)>>1);}
+#ifdef _WIN32
+static bool IsSelfTest(const wchar_t* a){return wcscmp(a,L"--self-test")==0;}
+static int ToInt(const wchar_t* a){return _wtoi(a);}
 int wmain(int argc,wchar_t** argv) {
+#else
+static bool IsSelfTest(const char* a){return std::strcmp(a,"--self-test")==0;}
+static int ToInt(const char* a){return std::atoi(a);}
+int main(int argc,char** argv) {
+#endif
  try {
-  if(argc==3&&wcscmp(argv[1],L"--self-test")==0){Exporter e(argv[2]);e.Decode(sample_data_drcs_1,sizeof(sample_data_drcs_1),1000);e.Save();return 0;}
-  if(argc!=4)return 2;int pid=_wtoi(argv[2]);if(pid<0||pid>8191)return 3;Exporter out(argv[3]);std::ifstream input(fs::path(argv[1]),std::ios::binary);if(!input)return 4;
+  if(argc==3&&IsSelfTest(argv[1])){Exporter e(argv[2]);e.Decode(sample_data_drcs_1,sizeof(sample_data_drcs_1),1000);e.Save();return 0;}
+  if(argc!=4)return 2;int pid=ToInt(argv[2]);if(pid<0||pid>8191)return 3;Exporter out(argv[3]);std::ifstream input(fs::path(argv[1]),std::ios::binary);if(!input)return 4;
   // Packet stride: 188 for plain TS, 192 for .m2ts/BDAV (4-byte TP_extra header).
   // Judge by content (sync byte pattern), never by the file name.
   int stride=188,header=0;

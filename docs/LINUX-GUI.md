@@ -34,14 +34,15 @@ Core の `Integration` / `QueueManager` 経由で読み書きします）。そ�
   入力情報・音声ストリーム一覧）。診断結果は `Lab/<guid>/signal.json` 等へ保存し、
   試算結果からカスタムプリセットを保存できます。
 
-## CM解析・ロゴ除去の実行に関する依存（未マージのブランチ）
+## CM解析・ロゴ除去の実行（統合済み）
 
-CM解析（logoframe / chapter_exe / join_logo_scp）とロゴ除去の実行そのものは、Core 側の
-外部ツール解決が `feature/linux-cm-delogo` ブランチ（フェーズA-4：Amatsukaze ツールの
-Linux 再ビルド＋ffmpeg delogo 経路）に依存します。本ブランチの Core では Windows 用
-ツールのパス解決のままなので、GUI の「CM解析（診断）」はツールの不足をそのまま表示し、
-範囲指定済みロゴを使う変換もそのブランチのマージ後に有効になります。
-GUI 側の画面・依頼・ファイル形式はすべてマージ後の Core と互換です。
+CM解析（logoframe / chapter_exe / join_logo_scp）とロゴ除去は、フェーズA-4
+（旧 `feature/linux-cm-delogo` ブランチ）を本ブランチへ統合済みで、Linux でも
+そのまま動作します。CMツールは `scripts/build-cm-tools.sh` で再ビルドし、設定画面の
+「変換ツール」で chapter_exe / logoframe のパスを指定してください（配置先フォルダーから
+join_logo_scp・AviSynth・JL スクリプトを相対解決します）。ロゴ除去は登録済みロゴ範囲
+または LGD ヘッダーから矩形を解決し、ffmpeg の delogo フィルターで処理します
+（Windows の DelogoHD 逆算合成とは方式が異なり、品質面では Windows 経路が上です）。
 
 ## ビルドと実行（開発時）
 

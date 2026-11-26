@@ -1,0 +1,18 @@
+# TS Encode Flow ワーカー (Linux) の systemd ユーザーユニット雛形。
+# 使い方: パスを実環境に合わせて編集し、~/.config/systemd/user/ へ配置して
+#   systemctl --user daemon-reload && systemctl --user enable --now ts-encode-worker
+# データフォルダーは --data で指定する (省略時は ~/.local/share/TS-Encode-Flow)。
+# フレームワーク依存ビルドを使う場合は Environment=DOTNET_ROOT=... の行を追加すること。
+# (enable-linger は使わない前提: ログイン中のみ常駐する)
+[Unit]
+Description=TS Encode Flow Worker
+After=network.target
+
+[Service]
+ExecStart=/home/USER/TS-Encode-Flow/src/Worker/bin/Debug/net9.0-windows/TS-Encode-Worker --data /home/USER/tsef-data
+WorkingDirectory=/home/USER/TS-Encode-Flow
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

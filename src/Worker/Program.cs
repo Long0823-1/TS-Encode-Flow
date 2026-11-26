@@ -3,11 +3,15 @@ using TsEncodeFlow;
 static class Program {
  static string Arg(string[] args,string name,string fallback){int i=Array.IndexOf(args,name);return i>=0&&i+1<args.Length?args[i+1]:fallback;}
  [STAThread]static int Main(string[] args) {
+#if TSEF_NO_TRAY
+  return Run(args,CancellationToken.None,false);
+#else
   bool tray=Environment.UserInteractive&&!args.Contains("--run")&&!args.Contains("--enqueue");
   if(!tray)return Run(args,CancellationToken.None,false);
   System.Windows.Forms.Application.EnableVisualStyles();
   string data=Path.GetFullPath(Arg(args,"--data",Integration.DataFolder));
   using var context=new WorkerTray(data,token=>Run(args,token,true));System.Windows.Forms.Application.Run(context);return context.Result;
+#endif
  }
  static int Run(string[] args,CancellationToken stop,bool resident) {
   string data=Path.GetFullPath(Arg(args,"--data",Integration.DataFolder));Directory.CreateDirectory(data);
@@ -22,7 +26,7 @@ static class Program {
     if(!args.Contains("--run")){Integration.Wake(Environment.ProcessPath,data);return 0;}
    }
    FileStream lease;
-   try{lease=File.Open(Path.Combine(data,"worker.lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.Read);}catch(IOException){return args.Contains("--run")?2:0;}
+   try{lease=File.Open(Path.Combine(data,"worker.lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,OperatingSystem.IsWindows()?FileShare.Read:FileShare.None);}catch(IOException){return args.Contains("--run")?2:0;}
    using(lease) {
    using(var queue=new QueueManager(data)) {
     string settingsFile=Path.Combine(data,"settings.json"),statusFile=Path.Combine(data,"worker-status.json");

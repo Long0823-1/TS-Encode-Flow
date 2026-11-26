@@ -207,6 +207,7 @@ namespace TsEncodeFlow {
    if(!File.Exists(s.EpgDll))s.EpgDll=FindTool("EpgDataCap3.dll");
    if(!File.Exists(s.CaptionTool))s.CaptionTool=win?FindTool("CaptionProbe.exe"):FindTool("CaptionProbe.exe","CaptionProbe");
    if(!File.Exists(s.DelogoPlugin))s.DelogoPlugin=FindTool("DelogoHD.dll");
+   if(!OperatingSystem.IsWindows()){if(!File.Exists(s.ChapterExe))s.ChapterExe=FindTool("chapter_exe");if(!File.Exists(s.LogoFrame))s.LogoFrame=FindTool("logoframe");}
   }
   public static string Fingerprint(string file) {var f=new FileInfo(file);return f.FullName.ToUpperInvariant()+"|"+f.Length+"|"+f.LastWriteTimeUtc.Ticks;}
  }

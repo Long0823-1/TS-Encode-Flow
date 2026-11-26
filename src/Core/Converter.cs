@@ -57,7 +57,16 @@ namespace TsEncodeFlow {
    j.Message="逆テレシネを判定中";changed();j.Telecine=await Telecine.Analyze(j,settings,token,log);changed();
    string subtitle=await Subtitles.Prepare(j,settings,dataFolder,token,log,changed);
    j.DelogoInput="";
-   if(j.Preset.RemoveLogo)j.DelogoInput=await Delogo.Prepare(j,settings,dataFolder,token,log,changed);
+   LogoArea delogoArea=null;
+   if(j.Preset.RemoveLogo) {
+    if(OperatingSystem.IsWindows())j.DelogoInput=await Delogo.Prepare(j,settings,dataFolder,token,log,changed);
+    else {
+     // LinuxではDelogoHD/AviSynth経路が使えないため、エンコードのフィルタ列でffmpeg delogoを適用する（VA-APIではhwuploadより前段）。
+     if(AdvancedOptions.Enabled(j.Preset))throw new InvalidDataException("Linuxでは詳細パイプラインとロゴ消しの併用は未対応です。通常パイプラインで実行してください。");
+     if(j.Preset.Engine!=Engine.CPU&&j.Preset.Engine!=Engine.Vaapi)throw new InvalidDataException("Linuxでのロゴ消しはCPUまたはVA-APIエンコードでのみ利用できます。");
+     delogoArea=Delogo.ResolveArea(dataFolder,j,settings);log("ロゴ消し（ffmpeg delogo）範囲："+delogoArea);
+    }
+   }
    string delogoInput=j.DelogoInput.Length>0?j.DelogoInput:null;
    string cutFilter=null;
    if(keep!=null) {
@@ -65,7 +74,7 @@ namespace TsEncodeFlow {
     if(subtitle=="arib-raw")subtitle=await Subtitles.CutRawSubtitles(j,settings,folder,log,token);
     else subtitle=Commercials.CutSubtitles(j,subtitle,folder,log);
     // Delogo builds its intermediate already CM-trimmed (AVS Trim), so no trim filter is needed for it.
-    if(delogoInput==null&&(j.Preset.Engine==Engine.CPU||j.Preset.Engine==Engine.Vaapi||j.Metadata.InverseTelecine)){cutFilter=Path.Combine(folder,"trim-filter.txt");File.WriteAllText(cutFilter,Commercials.Filter(keep,j.Metadata,Commands.Filters(j.Preset,j.Metadata)));}
+    if(delogoInput==null&&(j.Preset.Engine==Engine.CPU||j.Preset.Engine==Engine.Vaapi||j.Metadata.InverseTelecine)){cutFilter=Path.Combine(folder,"trim-filter.txt");File.WriteAllText(cutFilter,Commercials.Filter(keep,j.Metadata,Commands.Filters(j.Preset,j.Metadata,delogoArea)));}
    }
    string root=Path.GetFullPath(j.OutputFolder),relative=Names.Render(j.FileName,j.Metadata,j.Preset);
    string desired=Path.GetFullPath(Path.Combine(root,relative));if(!desired.StartsWith(root.TrimEnd(Path.DirectorySeparatorChar)+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase))throw new ArgumentException("出力先が保存フォルダーの範囲外です。");
@@ -89,10 +98,10 @@ namespace TsEncodeFlow {
     Command command=null;
     bool advanced=AdvancedOptions.Enabled(p);
     if(advanced){j.Message="詳細パイプラインを開始中";changed();await AdvancedEncoder.Run(j,s,dataFolder,temp,token,log,changed);}
-    else if(p.Engine==Engine.CPU)command=delogoInput==null?Commands.Ffmpeg(s,p,j.Metadata,j.MediaInput,temp,cutFilter:cutFilter):Commands.Ffmpeg(s,p,Delogo.VideoOnly(j.Metadata),delogoInput,temp);
+    else if(p.Engine==Engine.CPU)command=delogoInput==null?Commands.Ffmpeg(s,p,j.Metadata,j.MediaInput,temp,cutFilter:cutFilter,delogo:delogoArea):Commands.Ffmpeg(s,p,Delogo.VideoOnly(j.Metadata),delogoInput,temp);
     else if(p.Engine==Engine.Vaapi) {
      if(!Vaapi.Available(s))throw new FileNotFoundException("VA-APIエンコードを利用できません。ffmpegのVA-APIエンコーダーとデバイス "+Vaapi.Device(s)+"（Mesaドライバー）を確認してください。");
-     command=delogoInput==null?Commands.Vaapi(s,p,j.Metadata,j.MediaInput,temp,cutFilter):Commands.Vaapi(s,p,Delogo.VideoOnly(j.Metadata),delogoInput,temp);
+     command=delogoInput==null?Commands.Vaapi(s,p,j.Metadata,j.MediaInput,temp,cutFilter,delogoArea):Commands.Vaapi(s,p,Delogo.VideoOnly(j.Metadata),delogoInput,temp);
     }
     else {
      string encoder=p.Engine==Engine.NVEncC?s.Nvenc:p.Engine==Engine.VCEEncC?s.Vceenc:s.Qsvenc;if(!File.Exists(encoder))throw new FileNotFoundException("選択したGPUエンコーダーがありません。設定タブでパスを指定してください。",encoder);

@@ -211,7 +211,7 @@ namespace TsEncodeFlow {
  }
  public static class Names {
   public static string Safe(string value) {
-   var invalid=Path.GetInvalidFileNameChars();string text=new string((value??"").Select(c=>invalid.Contains(c)||char.IsControl(c)?'_':c).ToArray()).Trim().TrimEnd('.');
+   var invalid=Path.GetInvalidFileNameChars().Concat("<>:\"/\\|?*").ToArray();string text=new string((value??"").Select(c=>invalid.Contains(c)||char.IsControl(c)?'_':c).ToArray()).Trim().TrimEnd('.');
    if(text.Length>120)text=text.Substring(0,120).TrimEnd('.',' ');
    if(Regex.IsMatch(text,@"^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\.|$)",RegexOptions.IgnoreCase))text="_"+text;
    return text;

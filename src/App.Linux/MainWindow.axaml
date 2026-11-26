@@ -80,8 +80,10 @@
     <ContentControl Content="{Binding PresetsScreen}" IsVisible="{Binding IsPresetsSection}"/>
     <ContentControl Content="{Binding SettingsScreen}" IsVisible="{Binding IsSettingsSection}"/>
     <ContentControl Content="{Binding AutomationScreen}" IsVisible="{Binding IsAutomationSection}"/>
-    <TextBlock Text="{Binding PlaceholderText}" IsVisible="{Binding IsPlaceholderSection}" FontSize="16" Foreground="Gray"
-               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+    <ContentControl Content="{Binding DrcsScreen}" IsVisible="{Binding IsDrcsSection}"/>
+    <ContentControl Content="{Binding CommercialScreen}" IsVisible="{Binding IsCommercialSection}"/>
+    <ContentControl Content="{Binding StationLogosScreen}" IsVisible="{Binding IsStationLogosSection}"/>
+    <ContentControl Content="{Binding LabScreen}" IsVisible="{Binding IsLabSection}"/>
    </Panel>
 
    <TextBlock Grid.Row="3" Text=""/>

@@ -58,16 +58,25 @@ sealed class MainViewModel:ViewModelBase {
  public PresetsScreen PresetsScreen {get;private set;}=null!;
  public SettingsScreen SettingsScreen {get;private set;}=null!;
  public AutomationScreen AutomationScreen {get;private set;}=null!;
+ public DrcsScreen DrcsScreen {get;private set;}=null!;
+ public CommercialScreen CommercialScreen {get;private set;}=null!;
+ public StationLogosScreen StationLogosScreen {get;private set;}=null!;
+ public LabScreen LabScreen {get;private set;}=null!;
  public string[] Sections {get;}=["ダッシュボード","変換キュー","プリセット","字幕・DRCS","CM・タイムリスト","放送局ロゴ","自動化","解析・比較","設定"];
  public string Section {get=>section;set{if(Set(ref section,value)){
   if(value=="プリセット")PresetsScreen?.Reload();else if(value=="設定")SettingsScreen?.Reload();else if(value=="自動化")AutomationScreen?.Reload();
+  else if(value=="字幕・DRCS")DrcsScreen?.Reload();else if(value=="CM・タイムリスト")CommercialScreen?.Reload();else if(value=="放送局ロゴ")StationLogosScreen?.Reload();
   RaiseAll();}}}
  public bool IsQueueSection=>Section is "ダッシュボード" or "変換キュー";
  public bool IsPresetsSection=>Section=="プリセット";
  public bool IsSettingsSection=>Section=="設定";
  public bool IsAutomationSection=>Section=="自動化";
- public bool IsPlaceholderSection=>!IsQueueSection&&!IsPresetsSection&&!IsSettingsSection&&!IsAutomationSection;
- public string PlaceholderText=>"「"+Section+"」画面は B-2 で実装予定です。";
+ public bool IsDrcsSection=>Section=="字幕・DRCS";
+ public bool IsCommercialSection=>Section=="CM・タイムリスト";
+ public bool IsStationLogosSection=>Section=="放送局ロゴ";
+ public bool IsLabSection=>Section=="解析・比較";
+ public bool IsPlaceholderSection=>false;
+ public string PlaceholderText=>"";
  public void OpenPresetEditorDemo() {Section="プリセット";PresetsScreen.OpenEditor(client.Selected,false);}
  void SyncPresetOptions(bool force=false) {
   string signature=client.Settings.Presets.Count+"|"+client.Settings.SelectedPreset+"|"+string.Join(",",client.Settings.Presets.Select(p=>p.PresetId+":"+p.Name));
@@ -121,6 +130,10 @@ sealed class MainViewModel:ViewModelBase {
   PresetsScreen=new PresetsScreen(client,Notice);
   SettingsScreen=new SettingsScreen(client,Notice);
   AutomationScreen=new AutomationScreen(client,Notice);
+  DrcsScreen=new DrcsScreen(client,Notice);
+  CommercialScreen=new CommercialScreen(client,Notice);
+  StationLogosScreen=new StationLogosScreen(client,Notice);
+  LabScreen=new LabScreen(client,Notice);
   Refresh();
  }
 

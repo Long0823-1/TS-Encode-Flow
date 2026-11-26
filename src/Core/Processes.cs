@@ -70,8 +70,8 @@ namespace TsEncodeFlow {
   [DllImport("kernel32.dll")] static extern bool AssignProcessToJobObject(IntPtr job,IntPtr process);
   [DllImport("kernel32.dll")] static extern bool TerminateJobObject(IntPtr job,uint code);
   [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
-  public ChildJob(){handle=CreateJobObject(IntPtr.Zero,null);var limits=new Limits();limits.Basic.Flags=0x2000;if(handle==IntPtr.Zero||!SetInformationJobObject(handle,9,ref limits,(uint)Marshal.SizeOf(typeof(Limits)))){Dispose();throw new IOException("子プロセス管理を初期化できません。");}}
-  public void Assign(Process p){if(!AssignProcessToJobObject(handle,p.Handle)){try{p.Kill();}catch{}throw new IOException("子プロセス管理に登録できません。");}}
+  public ChildJob(){if(!OperatingSystem.IsWindows())return;handle=CreateJobObject(IntPtr.Zero,null);var limits=new Limits();limits.Basic.Flags=0x2000;if(handle==IntPtr.Zero||!SetInformationJobObject(handle,9,ref limits,(uint)Marshal.SizeOf(typeof(Limits)))){Dispose();throw new IOException("子プロセス管理を初期化できません。");}}
+  public void Assign(Process p){if(handle==IntPtr.Zero)return;if(!AssignProcessToJobObject(handle,p.Handle)){try{p.Kill();}catch{}throw new IOException("子プロセス管理に登録できません。");}}
   public void Kill(){if(handle!=IntPtr.Zero)TerminateJobObject(handle,1);}
   public void Dispose(){if(handle!=IntPtr.Zero){CloseHandle(handle);handle=IntPtr.Zero;}}
  }

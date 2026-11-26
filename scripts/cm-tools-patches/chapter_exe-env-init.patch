@@ -1,0 +1,12 @@
+diff --git a/src/source.h b/src/source.h
+index 89432e5..3fc8040 100644
+--- a/src/source.h
++++ b/src/source.h
+@@ -286,6 +286,7 @@ public:
+     : NullSource()
+     , format()
+     , audio_format()
++    , env(nullptr)
+   {}
+ 
+   virtual void init(const char *infile) {

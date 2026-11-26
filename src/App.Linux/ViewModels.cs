@@ -53,11 +53,33 @@ sealed class MainViewModel:ViewModelBase {
  PresetOption? selectedPreset;
 
  public ObservableCollection<JobRowViewModel> Rows {get;}=[];
- public List<PresetOption> PresetOptions {get;}
+ public ObservableCollection<PresetOption> PresetOptions {get;}=[];
+ string presetSignature="";bool syncingPreset;
+ public PresetsScreen PresetsScreen {get;private set;}=null!;
+ public SettingsScreen SettingsScreen {get;private set;}=null!;
+ public AutomationScreen AutomationScreen {get;private set;}=null!;
  public string[] Sections {get;}=["ダッシュボード","変換キュー","プリセット","字幕・DRCS","CM・タイムリスト","放送局ロゴ","自動化","解析・比較","設定"];
- public string Section {get=>section;set{if(Set(ref section,value)){RaiseAll();}}}
+ public string Section {get=>section;set{if(Set(ref section,value)){
+  if(value=="プリセット")PresetsScreen?.Reload();else if(value=="設定")SettingsScreen?.Reload();else if(value=="自動化")AutomationScreen?.Reload();
+  RaiseAll();}}}
  public bool IsQueueSection=>Section is "ダッシュボード" or "変換キュー";
+ public bool IsPresetsSection=>Section=="プリセット";
+ public bool IsSettingsSection=>Section=="設定";
+ public bool IsAutomationSection=>Section=="自動化";
+ public bool IsPlaceholderSection=>!IsQueueSection&&!IsPresetsSection&&!IsSettingsSection&&!IsAutomationSection;
  public string PlaceholderText=>"「"+Section+"」画面は B-2 で実装予定です。";
+ public void OpenPresetEditorDemo() {Section="プリセット";PresetsScreen.OpenEditor(client.Selected,false);}
+ void SyncPresetOptions(bool force=false) {
+  string signature=client.Settings.Presets.Count+"|"+client.Settings.SelectedPreset+"|"+string.Join(",",client.Settings.Presets.Select(p=>p.PresetId+":"+p.Name));
+  if(!force&&signature==presetSignature)return;
+  presetSignature=signature;syncingPreset=true;
+  try {
+   PresetOptions.Clear();
+   foreach(var p in client.Settings.Presets)PresetOptions.Add(new PresetOption(p));
+   selectedPreset=PresetOptions.Count>0?PresetOptions[Math.Clamp(client.Settings.SelectedPreset,0,PresetOptions.Count-1)]:null;
+  }finally{syncingPreset=false;}
+  RaiseAll();
+ }
  public string Toast {get=>toast;private set=>Set(ref toast,value);}
  public string Counts {get=>counts;private set=>Set(ref counts,value);}
  public string WorkerText {get=>workerText;private set=>Set(ref workerText,value);}
@@ -65,7 +87,7 @@ sealed class MainViewModel:ViewModelBase {
  public PresetOption? SelectedPreset {
   get=>selectedPreset;
   set {
-   if(!Set(ref selectedPreset,value)||value==null)return;
+   if(!Set(ref selectedPreset,value)||value==null||syncingPreset)return;
    try{client.Choose(value.Preset);Notice("プリセットを「"+value.Preset.Name+"」にしました。");}catch(Exception e){Notice(e.Message);}
    Refresh();
   }
@@ -81,8 +103,7 @@ sealed class MainViewModel:ViewModelBase {
 
  public MainViewModel(EngineClientLinux client) {
   this.client=client;
-  PresetOptions=client.Settings.Presets.Select(p=>new PresetOption(p)).ToList();
-  selectedPreset=PresetOptions[Math.Clamp(client.Settings.SelectedPreset,0,PresetOptions.Count-1)];
+  SyncPresetOptions(true);
   ResumeCommand=new RelayCommand(_=>SendAction("resume","変換を再開します。"));
   PauseCommand=new RelayCommand(_=>SendAction("pause","実行中の変換は続け、新しい変換の開始を一時停止します。"));
   CancelAllCommand=new RelayCommand(_=>{
@@ -97,6 +118,9 @@ sealed class MainViewModel:ViewModelBase {
   });
   CancelJobCommand=new RelayCommand(p=>{if(p is JobRowViewModel row)SendAction("cancel","中止を依頼しました。",row.Id);});
   RetryJobCommand=new RelayCommand(p=>{if(p is JobRowViewModel row)SendAction("retry","再試行を依頼しました。",row.Id);});
+  PresetsScreen=new PresetsScreen(client,Notice);
+  SettingsScreen=new SettingsScreen(client,Notice);
+  AutomationScreen=new AutomationScreen(client,Notice);
   Refresh();
  }
 
@@ -117,6 +141,7 @@ sealed class MainViewModel:ViewModelBase {
  public void Refresh() {
   try {
    client.Refresh();
+   SyncPresetOptions();
    var selected=client.Selected;
    PresetDetail=selected.Name+" · "+PresetCatalog.EngineName(selected.Engine)+" · "+selected.Codec+" · "+PresetCatalog.ResolutionName(selected);
    int logoPending=client.Jobs.Count(j=>j.State is State.NeedsLogo or State.NeedsLogoReview);

@@ -56,4 +56,8 @@ sealed class EngineClientLinux {
 
  public void Send(string action,string? id=null) {Integration.Send(Data,action,id);Wake();}
  public void Choose(Preset preset) {Settings.SelectedPreset=Settings.Presets.IndexOf(preset);Save();}
+ // Windows版 EngineClient と同じプリセット保存・削除・キャッシュ保存の経路
+ public void SavePreset(Preset preset) {PresetCatalog.SaveCustom(Settings,preset);Save();}
+ public void DeletePreset(Preset preset) {PresetCatalog.DeleteCustom(Settings,preset);Save();}
+ public void SaveCacheFolder(string? folder) {string selected=folder?.Trim()??"";EncodeCache.ValidateFolder(selected);if(selected.Length>0)selected=Path.GetFullPath(selected);string previous=Settings.EncodeCacheFolder;try{Settings.EncodeCacheFolder=selected;Save();}catch{Settings.EncodeCacheFolder=previous;throw;}}
 }

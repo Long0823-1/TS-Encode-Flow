@@ -77,7 +77,10 @@
       </DataTemplate>
      </ListBox.ItemTemplate>
     </ListBox>
-    <TextBlock Text="{Binding PlaceholderText}" IsVisible="{Binding !IsQueueSection}" FontSize="16" Foreground="Gray"
+    <ContentControl Content="{Binding PresetsScreen}" IsVisible="{Binding IsPresetsSection}"/>
+    <ContentControl Content="{Binding SettingsScreen}" IsVisible="{Binding IsSettingsSection}"/>
+    <ContentControl Content="{Binding AutomationScreen}" IsVisible="{Binding IsAutomationSection}"/>
+    <TextBlock Text="{Binding PlaceholderText}" IsVisible="{Binding IsPlaceholderSection}" FontSize="16" Foreground="Gray"
                HorizontalAlignment="Center" VerticalAlignment="Center"/>
    </Panel>
 

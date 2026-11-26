@@ -79,7 +79,7 @@ namespace TsEncodeFlow {
      if(!Directory.Exists(Settings.WatchFolder))throw new IOException("監視フォルダーがありません。");
      foreach(string file in Directory.EnumerateFiles(Settings.WatchFolder,"*",Settings.Recursive?SearchOption.AllDirectories:SearchOption.TopDirectoryOnly)) {
       if(TransportStream.PacketSize(file)==0)continue;
-      string output=Path.GetFullPath(Settings.OutputFolder).TrimEnd('\\')+"\\";
+      string output=Path.GetFullPath(Settings.OutputFolder).TrimEnd(Path.DirectorySeparatorChar,Path.AltDirectorySeparatorChar)+Path.DirectorySeparatorChar;
       if(Path.GetFullPath(file).StartsWith(output,StringComparison.OrdinalIgnoreCase))continue;
       if(Stable(file))Enqueue(file,true);
      }

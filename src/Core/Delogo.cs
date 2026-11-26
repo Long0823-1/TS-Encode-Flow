@@ -22,6 +22,13 @@ namespace TsEncodeFlow {
    if(string.IsNullOrWhiteSpace(logo)||!File.Exists(logo))throw new InvalidDataException("透過ロゴ消しには登録済み局ロゴ（LGD）が必要です。ロゴ管理で局ロゴを登録するか、設定でロゴLGDを指定してください。");
    LogoCandidates.Read(logo,job.Metadata);return logo;
   }
+  // Linux経路: DelogoHDの逆算合成は行わず、ffmpegのdelogoフィルタで補間する。矩形はWindows経路と同じ入力（LGDヘッダー、なければ登録済みロゴ範囲）から得る。
+  public static LogoArea ResolveArea(string data,Job job,Settings settings) {
+   string logo=!string.IsNullOrWhiteSpace(settings.CmLogo)?settings.CmLogo:StationLogos.Find(data,job);
+   if(!string.IsNullOrWhiteSpace(logo)&&File.Exists(logo)) {var bitmap=LogoCandidates.Read(logo,job.Metadata);return new LogoArea {X=bitmap.X,Y=bitmap.Y,Width=bitmap.Width,Height=bitmap.Height};}
+   var area=StationLogos.Read(data,job).Area;if(area==null)throw new LogoAreaRequiredException();area.Validate(job.Metadata);return area;
+  }
+  public static string Filter(LogoArea area)=>"delogo=x="+area.X.ToString(CultureInfo.InvariantCulture)+":y="+area.Y.ToString(CultureInfo.InvariantCulture)+":w="+area.Width.ToString(CultureInfo.InvariantCulture)+":h="+area.Height.ToString(CultureInfo.InvariantCulture);
   public static Metadata VideoOnly(Metadata source) {
    var m=Store.Clone(source);m.VideoIndex=0;m.AudioIndex=-1;return m;
   }

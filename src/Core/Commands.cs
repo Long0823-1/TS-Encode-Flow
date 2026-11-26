@@ -43,9 +43,11 @@ namespace TsEncodeFlow {
    }
    return new[]{Math.Max(2,(int)Math.Floor(ow/2)*2),Math.Max(2,(int)Math.Floor(oh/2)*2)};
   }
-  public static string Filters(Preset p,Metadata m) {
+  public static string Filters(Preset p,Metadata m,LogoArea delogo=null) {
    var f=new List<string>();int cropW=m.Width-p.CropLeft-p.CropRight,cropH=m.Height-p.CropTop-p.CropBottom;
    Resolution(p,m);
+   // ロゴ範囲は元映像の座標なので、クロップやスケールより前に補間する（Windows経路でDelogoHDが元フレームへ適用するのと同じ位置）。
+   if(delogo!=null)f.Add(Delogo.Filter(delogo));
    if(p.CropLeft+p.CropTop+p.CropRight+p.CropBottom>0)f.Add("crop="+cropW+":"+cropH+":"+p.CropLeft+":"+p.CropTop);
    if(m.InverseTelecine)f.Add("fieldmatch=order=auto:combmatch=full,bwdif=mode=send_frame:parity=auto:deint=interlaced,decimate=cycle=5,setfield=prog");
    else if(p.Deinterlace!=Deinterlace.None)f.Add((p.Deinterlace==Deinterlace.Yadif||p.Deinterlace==Deinterlace.YadifBob?"yadif":"bwdif")+"=mode="+(p.Deinterlace==Deinterlace.YadifBob||p.Deinterlace==Deinterlace.BwdifBob?"send_field":"send_frame")+":parity=auto:deint=all");
@@ -53,14 +55,14 @@ namespace TsEncodeFlow {
    var r=Resolution(p,m);if(r!=null){f.Add("scale="+r[0]+":"+r[1]+":flags=lanczos");f.Add("setsar=1");}
    if(p.Sharpen)f.Add("unsharp=5:5:0.5");if(!string.IsNullOrWhiteSpace(p.Fps))f.Add("fps="+p.Fps);return string.Join(",",f);
   }
-  public static Command Ffmpeg(Settings s,Preset p,Metadata m,string input,string output,bool lossless=false,bool remux=false,string cutFilter=null) {
+  public static Command Ffmpeg(Settings s,Preset p,Metadata m,string input,string output,bool lossless=false,bool remux=false,string cutFilter=null,LogoArea delogo=null) {
    Validate(p);var c=new Command {Exe=s.Ffmpeg};var a=c.Args;
    a.AddRange(new[]{"-hide_banner","-nostdin","-y","-probesize","20000000","-analyzeduration","10000000","-i",input});
    if(cutFilter!=null){a.AddRange(new[]{"-/filter_complex",cutFilter,"-map","[vout]"});if(m.AudioIndex>=0)a.AddRange(new[]{"-map","[aout]"});}
    else {a.AddRange(new[]{"-map","0:"+m.VideoIndex});if(m.AudioIndex>=0)a.AddRange(new[]{"-map","0:"+m.AudioIndex});}
    if(remux)a.AddRange(new[]{"-c","copy"});
    else {
-    string filters=Filters(p,m);if(filters.Length>0&&cutFilter==null)a.AddRange(new[]{"-vf",filters});
+    string filters=Filters(p,m,delogo);if(filters.Length>0&&cutFilter==null)a.AddRange(new[]{"-vf",filters});
     string codec=lossless?"ffv1":p.Codec==Codec.H264?"libx264":p.Codec==Codec.HEVC?"libx265":"libsvtav1";a.AddRange(new[]{"-c:v",codec});
     if(lossless)a.AddRange(new[]{"-level","3","-g","1"});
     else {
@@ -80,7 +82,7 @@ namespace TsEncodeFlow {
    }
    a.AddRange(new[]{"-progress","pipe:1","-nostats",output});return c;
   }
-  public static Command Vaapi(Settings s,Preset p,Metadata m,string input,string output,string cutFilter=null) {
+  public static Command Vaapi(Settings s,Preset p,Metadata m,string input,string output,string cutFilter=null,LogoArea delogo=null) {
    Validate(p);var c=new Command {Exe=s.Ffmpeg};var a=c.Args;
    // VA-APIはCPU経路（FFmpeg）と同じ単一プロセス構成にし、映像だけをGPUへ渡す。フィルタはすべてソフトウェアで適用し、最後に format=nv12,hwupload でVA-APIサーフェスへ転送する。
    // 品質値の対応: CPUのCRF・GPUツールのCQPと同じ「小さいほど高画質」の品質値を、そのままVA-APIの固定QP（-qp）として使う。VBR/CBRはCPU経路と同じ -b:v / -maxrate / -bufsize の組み合わせに寄せる。
@@ -88,7 +90,7 @@ namespace TsEncodeFlow {
    if(cutFilter!=null){string graph=File.ReadAllText(cutFilter)+";[vout]format=nv12,hwupload[vhw]";a.AddRange(new[]{"-filter_complex",graph,"-map","[vhw]"});if(m.AudioIndex>=0)a.AddRange(new[]{"-map","[aout]"});}
    else {
     a.AddRange(new[]{"-map","0:"+m.VideoIndex});if(m.AudioIndex>=0)a.AddRange(new[]{"-map","0:"+m.AudioIndex});
-    string filters=Filters(p,m);a.AddRange(new[]{"-vf",(filters.Length>0?filters+",":"")+"format=nv12,hwupload"});
+    string filters=Filters(p,m,delogo);a.AddRange(new[]{"-vf",(filters.Length>0?filters+",":"")+"format=nv12,hwupload"});
    }
    a.AddRange(new[]{"-c:v",p.Codec==Codec.HEVC?"hevc_vaapi":"h264_vaapi"});
    if(p.RateMode==RateMode.Quality)a.AddRange(new[]{"-qp",N(p.Quality)});

@@ -16,13 +16,13 @@ namespace TsEncodeFlow {
    var originalMetadata=Store.Clone(job.Metadata);
    token.ThrowIfCancellationRequested();StationLogos.Require(data,job,settings);
    string chapter=settings.ChapterExe,logoExe=settings.LogoFrame;
-   string bundled=Path.Combine(AppContext.BaseDirectory,"Tools","CmLogo","logoframe.exe"),managed=Path.GetFullPath(Path.Combine(data,"Tools","logoframe"))+Path.DirectorySeparatorChar;
+   string bundled=Path.Combine(AppContext.BaseDirectory,"Tools","CmLogo",OperatingSystem.IsWindows()?"logoframe.exe":"logoframe"),managed=Path.GetFullPath(Path.Combine(data,"Tools","logoframe"))+Path.DirectorySeparatorChar;
    if(File.Exists(bundled)&&(string.IsNullOrWhiteSpace(logoExe)||Path.GetFullPath(logoExe).StartsWith(managed,StringComparison.OrdinalIgnoreCase)))logoExe=bundled;
    if(!File.Exists(chapter)||!File.Exists(logoExe))throw new FileNotFoundException("設定でCM解析ツールとlogoframeをダウンロードして適用してください。");
-   string bin=Path.GetDirectoryName(chapter),root=Path.GetDirectoryName(bin),jls=Path.Combine(bin,"join_logo_scp.exe"),plugin=Path.Combine(bin,"plugins64","LSMASHSource.dll"),script=string.IsNullOrWhiteSpace(settings.JoinLogoScript)?Path.Combine(root,"JL","JL_標準.txt"):settings.JoinLogoScript;
-   foreach(string file in new[]{jls,plugin,script,Path.Combine(bin,"AviSynth.dll")})if(!File.Exists(file))throw new FileNotFoundException("CM解析の依存ファイルがありません。ツールを再ダウンロードしてください。",file);
+   string bin=Path.GetDirectoryName(chapter),root=Path.GetDirectoryName(bin),jls=Path.Combine(bin,OperatingSystem.IsWindows()?"join_logo_scp.exe":"join_logo_scp"),plugin=Path.Combine(bin,"plugins64",OperatingSystem.IsWindows()?"LSMASHSource.dll":"libLSMASHSource.so"),script=string.IsNullOrWhiteSpace(settings.JoinLogoScript)?Path.Combine(root,"JL","JL_標準.txt"):settings.JoinLogoScript;
+   foreach(string file in new[]{jls,plugin,script,Path.Combine(bin,OperatingSystem.IsWindows()?"AviSynth.dll":"libavisynth.so")})if(!File.Exists(file))throw new FileNotFoundException("CM解析の依存ファイルがありません。ツールを再ダウンロードしてください。",file);
    // logoframe loads its private AviSynth runtime, never a system-wide plugin folder.
-   string runtime=Path.GetDirectoryName(logoExe);foreach(string dll in new[]{"AviSynth.dll","vcruntime140.dll","msvcp140.dll"}){string source=Path.Combine(bin,dll);if(File.Exists(source)&&!File.Exists(Path.Combine(runtime,dll)))File.Copy(source,Path.Combine(runtime,dll));}
+   string runtime=Path.GetDirectoryName(logoExe);foreach(string dll in OperatingSystem.IsWindows()?new[]{"AviSynth.dll","vcruntime140.dll","msvcp140.dll"}:new[]{"libavisynth.so"}){string source=Path.Combine(bin,dll);if(File.Exists(source)&&!File.Exists(Path.Combine(runtime,dll)))File.Copy(source,Path.Combine(runtime,dll));}
    string work=Path.Combine(Commercials.Folder(job,data),"cm-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(work);
    job.Message="元TSのフレーム時刻を確認中";changed();
    string cache=Path.Combine(Commercials.Folder(job,data),"frame-times.csv"),identity=cache+".identity";
@@ -42,7 +42,7 @@ namespace TsEncodeFlow {
    ValidateTimeline(times,times.Length,job.Metadata);
    if(job.Metadata.AudioIndex<0)throw new InvalidDataException("無音検出に必要な音声ストリームがありません。");
    Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
-   var encoding=Encoding.GetEncoding(932,EncoderFallback.ExceptionFallback,DecoderFallback.ExceptionFallback);
+   var encoding=OperatingSystem.IsWindows()?Encoding.GetEncoding(932,EncoderFallback.ExceptionFallback,DecoderFallback.ExceptionFallback):new UTF8Encoding(false);
    string avs=Path.Combine(work,"source.avs"),privateIndex=Path.Combine(Commercials.Folder(job,data),"source-index.lwi");
    string sourceIdentity=Store.Fingerprint(job.MediaInput)+"|"+Store.Fingerprint(plugin),privateIdentity=sourceIdentity+"|"+job.Metadata.VideoIndex+"|"+job.Metadata.AudioIndex;
    int nativeVideo=-1,nativeAudio=-1;
@@ -127,8 +127,11 @@ namespace TsEncodeFlow {
     job.Message="CM解析用の音声を準備中（映像の中間出力なし）";changed();await CmAudio.Prepare(job,settings,pcm,token,log);
     // Keep the exact same aligned video frames as logoframe. Only substitute
     // the audio reader; never change frame numbering or infer missing footage.
-    File.WriteAllText(chapterAvs,"ClearAutoloadDirs()\nLoadPlugin("+Avs(plugin)+")\nv=LWLibavVideoSource("+Avs(privateIndex)+",stream_index="+nativeVideo+",threads=4,repeat=false).Trim("+skip+",-"+times.Length+").KillAudio()\na=WavSource("+Avs(pcm)+")\nAudioDub(v,a).AssumeFPS("+((int)Math.Round(job.Metadata.Fps*1000000)).ToString(CultureInfo.InvariantCulture)+",1000000).ConvertToYV12()\n",encoding);
-    job.Message="chapter_exeで無音・シーンチェンジを検出中";changed();var chapterArgs=new List<string>{"-v",chapterAvs,"-o",chapters};if(job.Metadata.Fps>=50)chapterArgs.AddRange(new[]{"-s","20"});
+    string chapterFps=((int)Math.Round(job.Metadata.Fps*1000000)).ToString(CultureInfo.InvariantCulture);
+    // Linux版AviSynth+にWavSourceはない（Windows専用機能）ため、音声はchapter_exe内蔵のWAVリーダーへ -a で渡し、AVSは映像のみにする。音声先頭と映像フレームの対応はWindows経路（AudioDub）と同じ前提。
+    if(OperatingSystem.IsWindows())File.WriteAllText(chapterAvs,"ClearAutoloadDirs()\nLoadPlugin("+Avs(plugin)+")\nv=LWLibavVideoSource("+Avs(privateIndex)+",stream_index="+nativeVideo+",threads=4,repeat=false).Trim("+skip+",-"+times.Length+").KillAudio()\na=WavSource("+Avs(pcm)+")\nAudioDub(v,a).AssumeFPS("+chapterFps+",1000000).ConvertToYV12()\n",encoding);
+    else File.WriteAllText(chapterAvs,"ClearAutoloadDirs()\nLoadPlugin("+Avs(plugin)+")\nLWLibavVideoSource("+Avs(privateIndex)+",stream_index="+nativeVideo+",threads=4,repeat=false).Trim("+skip+",-"+times.Length+").AssumeFPS("+chapterFps+",1000000).ConvertToYV12()\n",encoding);
+    job.Message="chapter_exeで無音・シーンチェンジを検出中";changed();var chapterArgs=OperatingSystem.IsWindows()?new List<string>{"-v",chapterAvs,"-o",chapters}:new List<string>{"-v",chapterAvs,"-a",pcm,"-o",chapters};if(job.Metadata.Fps>=50)chapterArgs.AddRange(new[]{"-s","20"});
     var detected=await Processes.Run(chapter,chapterArgs,token,log,timeoutSeconds:Math.Max(180,(int)Math.Ceiling(job.Metadata.Duration*2)));
     if(detected.ExitCode!=0||!File.Exists(chapters)||!Regex.IsMatch(File.ReadAllText(chapters,encoding),@"(?m)^# SCPos:"+(times.Length-1)+@"\s+"+(times.Length-1)+@"\s*$"))throw new InvalidDataException("無音・シーンチェンジ検出が最後まで完了していません。詳細ログを確認してください。");
    }finally{if(File.Exists(pcm))File.Delete(pcm);}

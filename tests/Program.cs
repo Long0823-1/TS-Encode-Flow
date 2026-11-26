@@ -113,6 +113,7 @@ static partial class Tests {
    NameConditionTests();
    VaapiTests(root);
    DelogoTests(root);
+   LinuxCmDelogoTests(root);
    M2tsTests(root);
    AribRawTests(root).GetAwaiter().GetResult();
    RepairUnitTests();

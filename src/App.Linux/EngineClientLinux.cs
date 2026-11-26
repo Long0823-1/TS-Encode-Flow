@@ -55,6 +55,20 @@ sealed class EngineClientLinux {
  }
 
  public void Send(string action,string? id=null) {Integration.Send(Data,action,id);Wake();}
+
+ // Windows版 EngineClient.ManageLogo と同一：ロゴ操作は Inbox 経由でワーカーへ依頼し、
+ // LogoOperations の受領ファイルで結果を確認する。
+ public async Task<LogoOperationResult> ManageLogo(QueueManager.Request request) {
+  request.LogoOperationId=Guid.NewGuid().ToString("N");
+  string inbox=Path.Combine(Data,"Inbox",request.LogoOperationId+".json"),receipt=Path.Combine(Data,"LogoOperations",request.LogoOperationId+".json");
+  Directory.CreateDirectory(Path.GetDirectoryName(inbox)!);Store.Save(inbox,request);Wake();
+  for(int i=0;i<300;i++) {
+   await Task.Delay(100);
+   if(File.Exists(receipt)) {var result=Store.Load<LogoOperationResult>(receipt,()=>new());if(!result.Success)throw new InvalidOperationException(result.Message);Refresh();return result;}
+   if(File.Exists(inbox+".error"))throw new IOException("ロゴ操作を受け付けられません。GUIと常駐ワーカーの両方が更新済みか確認してください。");
+  }
+  throw new TimeoutException("ワーカーの操作結果を確認できません。一覧を更新し、結果を確認してから再操作してください。");
+ }
  public void Choose(Preset preset) {Settings.SelectedPreset=Settings.Presets.IndexOf(preset);Save();}
  // Windows版 EngineClient と同じプリセット保存・削除・キャッシュ保存の経路
  public void SavePreset(Preset preset) {PresetCatalog.SaveCustom(Settings,preset);Save();}

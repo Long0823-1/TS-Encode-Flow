@@ -195,15 +195,16 @@ namespace TsEncodeFlow {
    }catch(Exception e){throw new InvalidDataException("設定の読み込みに失敗しました。ファイルを保持しています："+file,e);}
   }
   public static string FindTool(params string[] names) {
-   foreach(string dir in new[]{Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"Tools"),AppDomain.CurrentDomain.BaseDirectory}.Concat((Environment.GetEnvironmentVariable("PATH")??"").Split(';')))
+   foreach(string dir in new[]{Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"Tools"),AppDomain.CurrentDomain.BaseDirectory}.Concat((Environment.GetEnvironmentVariable("PATH")??"").Split(Path.PathSeparator)))
     foreach(string name in names)try{string path=Path.Combine(dir.Trim('"'),name);if(File.Exists(path))return Path.GetFullPath(path);}catch(ArgumentException){}
    return "";
   }
   public static void Detect(Settings s) {
-   if(!File.Exists(s.Ffmpeg))s.Ffmpeg=FindTool("ffmpeg.exe");if(!File.Exists(s.Ffprobe))s.Ffprobe=FindTool("ffprobe.exe");
-   if(!File.Exists(s.Nvenc))s.Nvenc=FindTool("NVEncC64.exe","NVEncC.exe");if(!File.Exists(s.Vceenc))s.Vceenc=FindTool("VCEEncC64.exe","VCEEncC.exe");if(!File.Exists(s.Qsvenc))s.Qsvenc=FindTool("QSVEncC64.exe","QSVEncC.exe");
+   bool win=OperatingSystem.IsWindows();
+   if(!File.Exists(s.Ffmpeg))s.Ffmpeg=win?FindTool("ffmpeg.exe"):FindTool("ffmpeg.exe","ffmpeg");if(!File.Exists(s.Ffprobe))s.Ffprobe=win?FindTool("ffprobe.exe"):FindTool("ffprobe.exe","ffprobe");
+   if(!File.Exists(s.Nvenc))s.Nvenc=win?FindTool("NVEncC64.exe","NVEncC.exe"):FindTool("NVEncC64.exe","NVEncC.exe","NVEncC64","NVEncC");if(!File.Exists(s.Vceenc))s.Vceenc=win?FindTool("VCEEncC64.exe","VCEEncC.exe"):FindTool("VCEEncC64.exe","VCEEncC.exe","VCEEncC64","VCEEncC");if(!File.Exists(s.Qsvenc))s.Qsvenc=win?FindTool("QSVEncC64.exe","QSVEncC.exe"):FindTool("QSVEncC64.exe","QSVEncC.exe","QSVEncC64","QSVEncC");
    if(!File.Exists(s.EpgDll))s.EpgDll=FindTool("EpgDataCap3.dll");
-   if(!File.Exists(s.CaptionTool))s.CaptionTool=FindTool("CaptionProbe.exe");
+   if(!File.Exists(s.CaptionTool))s.CaptionTool=win?FindTool("CaptionProbe.exe"):FindTool("CaptionProbe.exe","CaptionProbe");
    if(!File.Exists(s.DelogoPlugin))s.DelogoPlugin=FindTool("DelogoHD.dll");
   }
   public static string Fingerprint(string file) {var f=new FileInfo(file);return f.FullName.ToUpperInvariant()+"|"+f.Length+"|"+f.LastWriteTimeUtc.Ticks;}

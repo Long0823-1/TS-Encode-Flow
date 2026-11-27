@@ -14,6 +14,10 @@ static class Program {
   if(b2a>=0)return SmokeB2a(args,b2a);
   int b2b=Array.IndexOf(args,"--smoke-b2b");
   if(b2b>=0)return SmokeB2b(args,b2b);
+  int logofix=Array.IndexOf(args,"--smoke-logofix");
+  if(logofix>=0)return SmokeLogofix(args,logofix);
+  int logofixc=Array.IndexOf(args,"--smoke-logofix-convert");
+  if(logofixc>=0)return SmokeLogofixConvert(args,logofixc);
   int shot=Array.IndexOf(args,"--screenshot");
   if(shot>=0&&shot+1<args.Length)return Screenshot(args,args[shot+1]);
   BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
@@ -102,6 +106,79 @@ static class Program {
   }catch(Exception e){Console.Error.WriteLine(e);return 1;}
  }
 
+ // --smoke-logofix <元TS> <X> <Y> <W> <H> : 放送局ロゴ画面の局単位の範囲登録（set-station-logo-area）を
+ // 実データで検証する。画面と同じ StationLogosScreenLogic.SaveStationArea を通り、カードの読み戻しと
+ // Delogo.ResolveArea の解決までを確認する。
+ static int SmokeLogofix(string[] args,int index) {
+  if(index+5>=args.Length){Console.Error.WriteLine("元TSと範囲（X Y 幅 高さ）を指定してください。");return 2;}
+  string file=Path.GetFullPath(args[index+1]);
+  var area=new LogoArea {X=int.Parse(args[index+2]),Y=int.Parse(args[index+3]),Width=int.Parse(args[index+4]),Height=int.Parse(args[index+5])};
+  try {
+   var client=new EngineClientLinux();
+   Console.WriteLine("データフォルダー："+client.Data);
+   var job=client.Jobs.FirstOrDefault(j=>string.Equals(j.Input,file,StringComparison.OrdinalIgnoreCase))??throw new InvalidOperationException("対象TSのジョブがキューにありません。");
+   area.Validate(job.Metadata);
+   var (stations,_)=StationLogosScreenLogic.BuildRows(client);
+   var station=stations.FirstOrDefault(s=>s.Key==StationLogos.Key(job))??throw new InvalidOperationException("対象の放送局が一覧にありません。");
+   Console.WriteLine("対象局："+station.Channel+"（"+station.Key+"） / 登録前の範囲："+(station.Area?.ToString()??"なし"));
+   string message=StationLogosScreenLogic.SaveStationArea(client,station,area).GetAwaiter().GetResult();
+   Console.WriteLine("範囲保存OK："+message);
+   var (_,rowsAfter)=StationLogosScreenLogic.BuildRows(client);
+   var row=rowsAfter.FirstOrDefault(r=>r.Station.Key==station.Key&&r.Path==null&&r.Review==null)??throw new InvalidOperationException("保存後の行が見つかりません。");
+   if(row.Station.Area==null||row.Station.Area.ToString()!=area.ToString())throw new InvalidOperationException("カードの読み戻しで範囲が一致しません："+(row.Station.Area?.ToString()??"なし"));
+   Console.WriteLine("カード読み戻しOK：範囲 "+row.Station.Area+"（範囲登録済みとして表示される行）");
+   var resolved=Delogo.ResolveArea(client.Data,job,client.Settings);
+   if(resolved.ToString()!=area.ToString())throw new InvalidOperationException("Delogo.ResolveArea の範囲が一致しません："+resolved);
+   Console.WriteLine("Delogo.ResolveArea OK："+resolved);
+   Console.WriteLine("SMOKE-LOGOFIX OK");
+   return 0;
+  }catch(Exception e){Console.Error.WriteLine(e);return 1;}
+ }
+
+ // --smoke-logofix-convert <TS> : RemoveLogo有効のカスタムプリセットで登録し、ワーカーが
+ // ffmpeg delogo を実行して完了するかを確認する。検証用プリセットは終了時に片付ける。
+ static int SmokeLogofixConvert(string[] args,int index) {
+  if(index+1>=args.Length){Console.Error.WriteLine("TSファイルを指定してください。");return 2;}
+  string file=Path.GetFullPath(args[index+1]);
+  try {
+   var client=new EngineClientLinux();
+   var original=client.Selected;
+   // 検証用プリセットはCPU工場プリセットを土台にする（他エンジン向けの速度指定はx264で無効になるため）。
+   var cpuBase=client.Settings.Presets.FirstOrDefault(p=>p.Engine==Engine.CPU&&p.Name=="毎日の番組・バランス")??client.Settings.Presets.First(p=>p.Engine==Engine.CPU&&!string.IsNullOrEmpty(p.FactoryId));
+   var preset=Store.Clone(cpuBase);preset.Name="Logofix検証用";preset.RemoveLogo=true;preset.CmMode=CmMode.Off;preset.Engine=Engine.CPU;preset.Codec=Codec.H264;
+   client.SavePreset(preset);
+   var saved=client.Settings.Presets.FirstOrDefault(p=>p.Name=="Logofix検証用"&&string.IsNullOrEmpty(p.FactoryId))??throw new InvalidOperationException("検証用プリセットが保存されていません。");
+   Console.WriteLine("検証用プリセット："+saved.Name+"（RemoveLogo="+saved.RemoveLogo+" / "+PresetCatalog.EngineName(saved.Engine)+"）");
+   try {
+    int added=client.Add([file]);
+    Console.WriteLine(added+"本を登録しました。ワーカーの処理を待ちます…");
+    for(int i=0;i<600;i++) {
+     Thread.Sleep(1000);client.Refresh();
+     var job=client.Jobs.LastOrDefault(j=>j.Input==file);
+     if(job==null)continue;
+     if(job.State==State.Completed) {
+      string log=File.Exists(job.LogFile)?File.ReadAllText(job.LogFile):"";
+      string line=log.Split('\n').FirstOrDefault(l=>l.Contains("ロゴ消し（ffmpeg delogo）範囲："))?.Trim()??"";
+      if(line.Length==0)throw new InvalidOperationException("ジョブログに delogo 範囲の記録がありません。");
+      int at=job.Command.IndexOf("delogo=x=",StringComparison.Ordinal);
+      if(at<0)throw new InvalidOperationException("ffmpegコマンドに delogo フィルタがありません。");
+      Console.WriteLine("変換完了："+job.Output);
+      Console.WriteLine("ジョブログ："+line);
+      Console.WriteLine("ffmpegコマンド：…"+job.Command.Substring(at,Math.Min(44,job.Command.Length-at))+"…");
+      Console.WriteLine("SMOKE-LOGOFIX-CONVERT OK");
+      return 0;
+     }
+     if(job.State==State.Failed){Console.Error.WriteLine("失敗："+job.Message);return 1;}
+     if(job.State==State.Cancelled){Console.Error.WriteLine("中止されました："+job.Message);return 1;}
+    }
+    Console.Error.WriteLine("タイムアウト：変換の完了を確認できませんでした。");
+    return 3;
+   }finally {
+    try{client.DeletePreset(saved);client.Choose(original);}catch{}
+   }
+  }catch(Exception e){Console.Error.WriteLine(e);return 1;}
+ }
+
  // --screenshot <PNGパス> [--section <セクション名>] [--edit-preset] : ヘッドレスで描画して保存する（検証用）
  // [--fixture-b2b <TSファイル>] : B-2b各画面の表示用フィクスチャ（字形・CM区間・ロゴ）をデータフォルダーへ用意する
  // [--demo-signal <TSファイル>] : 解析・比較画面にTS診断（トランスポート解析）の結果を表示する
@@ -121,7 +198,8 @@ static class Program {
    viewModel.Section="解析・比較";
    viewModel.LabScreen.LoadSignalDemo(ts,ProbeDuration(client.Settings.Ffprobe,ts));
   }
-  var window=new MainWindow {DataContext=viewModel,Width=1180,Height=760};
+  int hi=Array.IndexOf(args,"--height");
+  var window=new MainWindow {DataContext=viewModel,Width=1180,Height=hi>=0&&hi+1<args.Length?int.Parse(args[hi+1]):760};
   window.Show();
   // 自動起動したワーカーの状態書き込みを待ってから撮る
   for(int i=0;i<4;i++){AvaloniaHeadlessPlatform.ForceRenderTimerTick();Thread.Sleep(400);viewModel.Refresh();}

@@ -70,7 +70,7 @@ namespace TsEncodeFlow {
    foreach(string request in Directory.EnumerateFiles(Path.Combine(DataFolder,"Inbox"),"*.json").OrderBy(File.GetCreationTimeUtc).ThenBy(Path.GetFileName,StringComparer.Ordinal).Take(100))try {
     var value=Store.Load<Request>(request,()=>new Request());
     if(value.Action=="enqueue")value.Profile?.Validate();
-    if(value.Action=="clear-encode-cache")ClearEncodeCache(value.JobId);else if(value.Action=="import-logo"||value.Action=="delete-logo"||value.Action=="delete-logo-candidate"||value.Action=="delete-station")ManageLogo(value);else if(value.Action=="approve-logo")ReviewLogo(value,true);else if(value.Action=="reject-logo")ReviewLogo(value,false);else if(value.Action=="set-logo-area")SetLogoArea(value);else if(value.Action=="approve-cm")ApproveCm(value);else if(value.Action=="change-preset")ChangePreset(value.JobId,value.Profile?.Preset);else if(value.Action=="clear-history")ClearHistory();else if(value.Action=="shutdown"){StopRequested=true;Paused=true;}else if(value.Action=="retry-ignore-subtitles")Retry(value.JobId,true);else if(value.Action=="cancel-all")CancelAll();else if(value.Action=="cancel")Cancel(value.JobId);else if(value.Action=="retry")Retry(value.JobId);else if(value.Action=="pause")Paused=true;else if(value.Action=="resume")Paused=false;else {var added=Enqueue(value.Path,false,value.Profile?.Preset,value.Profile?.OutputFolder,value.Profile?.FileName);if(added==null)Notice?.Invoke("同じTSはすでに待機中または変換中です。キューを確認してください。");else if(!StopRequested)Paused=false;}
+    if(value.Action=="clear-encode-cache")ClearEncodeCache(value.JobId);else if(value.Action=="import-logo"||value.Action=="delete-logo"||value.Action=="delete-logo-candidate"||value.Action=="delete-station"||value.Action=="set-station-logo-area")ManageLogo(value);else if(value.Action=="approve-logo")ReviewLogo(value,true);else if(value.Action=="reject-logo")ReviewLogo(value,false);else if(value.Action=="set-logo-area")SetLogoArea(value);else if(value.Action=="approve-cm")ApproveCm(value);else if(value.Action=="change-preset")ChangePreset(value.JobId,value.Profile?.Preset);else if(value.Action=="clear-history")ClearHistory();else if(value.Action=="shutdown"){StopRequested=true;Paused=true;}else if(value.Action=="retry-ignore-subtitles")Retry(value.JobId,true);else if(value.Action=="cancel-all")CancelAll();else if(value.Action=="cancel")Cancel(value.JobId);else if(value.Action=="retry")Retry(value.JobId);else if(value.Action=="pause")Paused=true;else if(value.Action=="resume")Paused=false;else {var added=Enqueue(value.Path,false,value.Profile?.Preset,value.Profile?.OutputFolder,value.Profile?.FileName);if(added==null)Notice?.Invoke("同じTSはすでに待機中または変換中です。キューを確認してください。");else if(!StopRequested)Paused=false;}
     File.Delete(request);
    }catch(Exception e){Notice?.Invoke("追加失敗："+e.Message);try{File.Move(request,request+".error");}catch(IOException){}}
    if(Settings.WatchEnabled&&(DateTime.UtcNow-lastScan).TotalSeconds>=3) {
@@ -154,6 +154,21 @@ namespace TsEncodeFlow {
       if(!candidate.StartsWith(root,StringComparison.OrdinalIgnoreCase)||!candidate.EndsWith(".lgd",StringComparison.OrdinalIgnoreCase))throw new ArgumentException("このジョブの候補フォルダー以外は削除できません。");
       if(string.IsNullOrEmpty(request.LogoSourceFingerprint)||Store.Fingerprint(candidate)!=request.LogoSourceFingerprint)throw new IOException("候補が変更されています。一覧を更新してください。");
       File.Delete(candidate);j.LogoCandidate="";j.State=State.NeedsLogo;j.Message="生成候補を削除しました。ロゴ範囲を選び直してください。";Save();result.Message=j.Message;
+     }
+     else if(request.Action=="set-station-logo-area") {
+      // 局単位の範囲登録：ジョブの状態に依存せず、放送局ロゴ画面から範囲だけを保存する（LGDはCM解析時に範囲から学習・生成される）。
+      // 既存の set-logo-area（ジョブ再開を伴う範囲指定）の条件は変えず、ロゴ操作の枠組み（局ロック・処理中ガード・結果通知）の中で追加する。
+      if(request.LogoArea==null)throw new ArgumentException("ロゴを囲んでください。");
+      var geometry=StationLogos.Geometry(station);
+      request.LogoArea.Validate(geometry);
+      var prior=Store.Load<StationLogo>(Path.Combine(folder,station.Key+".area.json"),()=>null);
+      string channel=station.Channel;
+      if((string.IsNullOrWhiteSpace(channel)||channel.StartsWith("局ID："))&&prior!=null&&!string.IsNullOrWhiteSpace(prior.Channel))channel=prior.Channel;
+      Store.Save(Path.Combine(folder,station.Key+".area.json"),new StationLogo {Key=station.Key,Channel=channel,Width=geometry.Width,Height=geometry.Height,Area=request.LogoArea});
+      var pending=Jobs.Where(j=>j.State==State.NeedsLogo&&!active.ContainsKey(j.Id)&&j.Metadata!=null&&StationLogos.Key(j)==station.Key).ToList();
+      foreach(var j in pending){j.State=State.Waiting;j.Progress=0;j.Message="局ロゴの範囲を保存しました。自動開始待ち";}
+      if(pending.Count>0){Paused=false;Save();}
+      result.Message="ロゴ範囲を保存しました："+request.LogoArea;
      }
      else throw new ArgumentException("未対応のロゴ操作です。");
      result.Success=true;

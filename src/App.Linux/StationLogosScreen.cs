@@ -41,6 +41,17 @@ static class StationLogosScreenLogic {
 
  public static string Summary(List<StationLogo> stations,List<Row> rows)=>
   stations.Count+"局・解像度 / 登録済み "+rows.Count(r=>r.Fingerprint!=null&&r.Review==null)+"版 / 生成画像の確認待ち "+rows.Count(r=>r.Review!=null)+"件";
+
+ // 局単位の範囲保存（放送局ロゴ画面の「ロゴ範囲を指定／変更」と検証用スモークが通る経路）。
+ // ジョブの状態に依存しない ManageLogo の set-station-logo-area でワーカーへ依頼する。
+ public static async Task<string> SaveStationArea(EngineClientLinux client,StationLogo station,LogoArea area) {
+  var result=await client.ManageLogo(new QueueManager.Request {Action="set-station-logo-area",LogoStation=station,LogoArea=area});
+  return result.Message;
+ }
+
+ // 保存した範囲の読み戻し（area.json を StationLogo として読む。未登録なら null）。
+ public static LogoArea? ReadStationArea(EngineClientLinux client,string key)=>
+  Store.Load<StationLogo>(Path.Combine(client.Data,"Logos",key+".area.json"),()=>new StationLogo()).Area;
 }
 
 // 放送局ロゴ画面（Windows版 StationLogosView の対応物）。
@@ -77,9 +88,10 @@ sealed class StationLogosScreen:UserControl {
  Control Card(StationLogosScreenLogic.Row row) {
   var title=Ui.Text((string.IsNullOrWhiteSpace(row.Station.Channel)?row.Station.Key:row.Station.Channel)+" · "+row.Station.Width+" × "+row.Station.Height,18,bold:true);
   var detail=Ui.Text(row.Path==null?row.Station.Key:Path.GetFileName(row.Path),12,muted:true);
-  var status=Ui.Text(row.Review!=null?"未承認の生成候補":row.Path==null?"ロゴ未登録":row.Current?"使用中":"保管中（旧版）",14,bold:true);
+  bool areaOnly=row.Path==null&&row.Review==null&&row.Station.Area!=null;
+  var status=Ui.Text(row.Review!=null?"未承認の生成候補":row.Path==null?(areaOnly?"範囲登録済み（ロゴ画像は未生成）":"ロゴ未登録"):row.Current?"使用中":"保管中（旧版）",14,bold:true);
   status.Foreground=new SolidColorBrush(Color.Parse("#185ABC"));
-  var imageInfo=Ui.Text(row.Path==null?"ロゴファイルを手動追加するか、TSから範囲を指定して生成できます。":"画像を読み込み中…",12,muted:true);
+  var imageInfo=Ui.Text(row.Path==null?(areaOnly?"ロゴ範囲 "+row.Station.Area+" を登録済みです。ロゴ消しはこの範囲を使えます。LGD（ロゴ画像）はCM解析のときに範囲から学習して生成されます。":"ロゴファイルを手動追加するか、TSから範囲を指定して生成できます。"):"画像を読み込み中…",12,muted:true);
   var image=new Image {Height=110,Stretch=Stretch.Uniform,HorizontalAlignment=Avalonia.Layout.HorizontalAlignment.Left};
   RenderOptions.SetBitmapInterpolationMode(image,BitmapInterpolationMode.None);
   if(row.Path!=null) {
@@ -96,6 +108,7 @@ sealed class StationLogosScreen:UserControl {
   var stack=Ui.Stack(title,detail,status,image,imageInfo,buttons);
   if(row.Review!=null)stack.Children.Add(Ui.Button("生成ロゴを確認",async()=>{await OpenReview(row.Review);Reload();},bold:true));
   if(row.Configure!=null)stack.Children.Add(Ui.Button("ロゴ範囲を指定",async()=>{await OpenArea(row.Configure);Reload();},bold:true));
+  if(row.Path==null&&row.Review==null&&row.Configure==null)stack.Children.Add(Ui.Button(row.Station.Area!=null?"ロゴ範囲を変更":"ロゴ範囲を指定",async()=>{await OpenAreaForStation(row);Reload();},bold:true));
   if(row.StationDelete)stack.Children.Add(Ui.Button("この局の登録をすべて削除",async()=>await DeleteStation(row)));
   return Ui.Card(stack);
  }
@@ -147,6 +160,60 @@ sealed class StationLogosScreen:UserControl {
   var win=new LogoAreaWindow(client,job,notice);
   if(TopLevel.GetTopLevel(this) is Window owner)win.Show(owner);
   var done=new TaskCompletionSource();win.Closed+=(_,_)=>done.TrySetResult();return done.Task;
+ }
+
+ // 範囲指定できるジョブが無い局向け：素材（この局のジョブ／TSファイル）を選んでから範囲指定を開く。
+ async Task OpenAreaForStation(StationLogosScreenLogic.Row row) {
+  try {
+   client.Refresh();
+   var related=client.Jobs.Where(j=>j.Metadata!=null&&j.Metadata.Width>=8&&j.Metadata.Height>=8&&StationLogos.Key(j)==row.Station.Key).ToList();
+   var win=new LogoAreaSourceWindow(client,row.Station,related,notice);
+   if(TopLevel.GetTopLevel(this) is Window owner)win.Show(owner);
+   var done=new TaskCompletionSource();win.Closed+=(_,_)=>done.TrySetResult();await done.Task;
+  }catch(Exception e){notice(e.Message);}
+ }
+}
+
+// 範囲指定の素材選択ウィンドウ：この局のジョブから選ぶか、TSファイルを直接選ぶ。
+// どちらの素材でも、保存は局単位の経路（set-station-logo-area）で行う。
+sealed class LogoAreaSourceWindow:Window {
+ readonly EngineClientLinux client;readonly StationLogo station;readonly Action<string> notice;
+
+ public LogoAreaSourceWindow(EngineClientLinux client,StationLogo station,List<Job> related,Action<string> notice) {
+  this.client=client;this.station=station;this.notice=notice;
+  Title="ロゴ範囲の素材を選択";Width=720;Height=560;
+  var body=new StackPanel {Spacing=8};
+  body.Children.Add(Ui.Text((string.IsNullOrWhiteSpace(station.Channel)?station.Key:station.Channel)+" · "+station.Width+" × "+station.Height,20,bold:true));
+  body.Children.Add(Ui.Text("ロゴが見える本編の映像で範囲を指定します。この局のジョブから選ぶか、TSファイルを直接指定してください。囲んだ範囲はこの局の登録として保存され、ロゴ消しとCM解析（LGDの学習）に使われます。",14,muted:true));
+  foreach(var job in related) {
+   var captured=job;
+   string label=(string.IsNullOrWhiteSpace(job.Metadata.Title)?Path.GetFileName(job.Input):job.Metadata.Title)+"（"+job.State+"）";
+   body.Children.Add(Ui.Button(label,()=>OpenWith(captured)));
+  }
+  if(related.Count==0)body.Children.Add(Ui.Text("この局のジョブはキューにありません。TSファイルを直接指定してください。",14,muted:true));
+  body.Children.Add(Ui.Button("TSファイルを選ぶ…",async()=>await PickFile(),bold:true));
+  body.Children.Add(Ui.Button("閉じる",Close));
+  Content=Ui.Scroll(body);
+ }
+
+ void OpenWith(Job job) {
+  var win=new LogoAreaWindow(client,job,notice,station);
+  if(TopLevel.GetTopLevel(this) is Window owner)win.Show(owner);else win.Show();
+  win.Closed+=(_,_)=>Close();
+ }
+
+ async Task PickFile() {
+  try {
+   var files=await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions {
+    Title="TSファイルを選択",AllowMultiple=false,
+    FileTypeFilter=[new FilePickerFileType("TS"){Patterns=["*.ts","*.m2ts"]}]});
+   var path=files.Select(f=>f.TryGetLocalPath()).FirstOrDefault(p=>!string.IsNullOrEmpty(p));
+   if(path==null)return;
+   var meta=await Task.Run(()=>MetadataReader.Read(path,client.Settings,0,CancellationToken.None,_=>{}));
+   var job=new Job {Input=path,Metadata=meta,Fingerprint=Store.Fingerprint(path),Preset=new Preset()};
+   if(StationLogos.Key(job)!=station.Key)throw new ArgumentException("選択したTSはこの局と一致しません（放送局ID・解像度を確認してください）。");
+   OpenWith(job);
+  }catch(Exception e){notice(e.Message);}
  }
 }
 
@@ -261,6 +328,7 @@ sealed class LogoReviewWindow:Window {
 sealed class LogoAreaWindow:Window {
  readonly EngineClientLinux client;readonly Job job;readonly Action<string> notice;
  readonly string fingerprint;readonly CancellationTokenSource stop=new();
+ readonly StationLogo? stationTarget;
  readonly TextBox seconds=Ui.Entry("30");
  readonly TextBlock selected=Ui.Text("プレビュー上でロゴ全体をドラッグして囲んでください。",14,muted:true);
  readonly TextBox x=Ui.Entry(""),y=Ui.Entry(""),w=Ui.Entry(""),h=Ui.Entry("");
@@ -270,12 +338,12 @@ sealed class LogoAreaWindow:Window {
  Avalonia.Media.Imaging.Bitmap? previewBitmap;string? previewFile;
  LogoArea? area;Point start;bool dragging,loading;
 
- public LogoAreaWindow(EngineClientLinux client,Job original,Action<string> notice) {
-  this.client=client;this.notice=notice;job=Store.Clone(original);
+ public LogoAreaWindow(EngineClientLinux client,Job original,Action<string> notice,StationLogo? stationTarget=null) {
+  this.client=client;this.notice=notice;this.stationTarget=stationTarget;job=Store.Clone(original);
   Title="放送局ロゴの範囲指定";Width=980;Height=760;
   seconds.Text=Math.Min(30,Math.Max(0,job.Metadata.Duration/2)).ToString("0.###",CultureInfo.InvariantCulture);
   fingerprint=Store.Fingerprint(job.Input);
-  save=Ui.Button("この局の範囲を保存して再開",Save,bold:true);save.IsEnabled=false;
+  save=Ui.Button(stationTarget!=null?"この局の範囲を保存":"この局の範囲を保存して再開",Save,bold:true);save.IsEnabled=false;
   var canvas=new Canvas();canvas.Children.Add(marker);
   stage.Background=Brushes.Black;stage.Children.Add(preview);stage.Children.Add(canvas);
   stage.PointerPressed+=(_,e)=>{if(previewBitmap==null||loading)return;start=e.GetPosition(stage);dragging=ImageBounds().Contains(start);};
@@ -354,6 +422,13 @@ sealed class LogoAreaWindow:Window {
    if(!int.TryParse(x.Text,out int left)||!int.TryParse(y.Text,out int top)||!int.TryParse(w.Text,out int width)||!int.TryParse(h.Text,out int height))throw new ArgumentException("ロゴを囲むか、X・Y・幅・高さを整数で入力してください。");
    var value=new LogoArea {X=left,Y=top,Width=width,Height=height};value.Validate(job.Metadata);
    if(Store.Fingerprint(job.Input)!=fingerprint)throw new IOException("入力TSが変更されています。キューから開き直してください。");
+   if(stationTarget!=null) {
+    // 局単位の保存経路：ジョブの状態に依存せず、ManageLogo の set-station-logo-area で範囲だけを登録する。
+    await StationLogosScreenLogic.SaveStationArea(client,stationTarget,value);
+    var saved=StationLogosScreenLogic.ReadStationArea(client,stationTarget.Key);
+    if(saved==null||saved.ToString()!=value.ToString())throw new IOException("範囲の保存を確認できませんでした。");
+    Close();return;
+   }
    // Windows版 LogoAreaPage.Save と同一の保存経路（Inbox の set-logo-area ＋ 適用確認）。
    string request=Path.Combine(client.Data,"Inbox",Guid.NewGuid().ToString("N")+".json");
    Store.Save(request,new QueueManager.Request {Action="set-logo-area",JobId=job.Id,Fingerprint=fingerprint,LogoArea=value});client.Wake();

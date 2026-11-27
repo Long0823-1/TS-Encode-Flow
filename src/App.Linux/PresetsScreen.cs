@@ -268,7 +268,7 @@ sealed class PresetEditorView:UserControl {
     Ui.Field("インターレース解除（判定できない場合）",filter),
     Ui.Field("フレームレート",fps,"空欄なら維持。GPUで指定すると可逆中間ファイルを作成します。"),
     Ui.Row(Ui.Text("ノイズ除去"),denoise),Ui.Row(Ui.Text("シャープ化"),sharp),Ui.Row(Ui.Text("透過ロゴを消す"),removeLogo),
-    Ui.Note("登録済み局ロゴ（LGD）を使い、AviSynth＋DelogoHDで透過ロゴを逆算で除去します。事前にツール設定で「ロゴ消し · DelogoHD」のダウンロードと、局ロゴの登録が必要です。中間映像（可逆）を作るため容量と時間が追加で必要です。"))),
+    Ui.Note("登録済み局ロゴ（LGD）または指定した範囲を使い、ffmpeg の delogo フィルタでロゴ周辺を補間して除去します。事前に「放送局ロゴ」で局ロゴの登録・範囲指定が必要です。Windows版の DelogoHD（逆算合成）と異なり補間方式のため、画質はやや劣ります。"))),
    Ui.Card(Ui.Stack(Ui.Text("音声・字幕・番組情報",21,bold:true),
     Ui.Row(Ui.Text("音声をコピー"),audioCopy),Ui.Field("AACビットレート kbps",audioRate),
     Ui.Row(Ui.Text("字幕を動画内に保存"),subtitles),Ui.Row(Ui.Text("字幕エラーを無視して続行"),ignoreSubtitles),

@@ -13,8 +13,8 @@ sealed class SettingsValues {
  public Dictionary<string,string> Tools=new();
  public static readonly (string Key,string Label,string Filter)[] ToolDefs=[
   ("Ffmpeg","FFmpeg · 必須",""),("Ffprobe","ffprobe · 必須",""),("Nvenc","NVEncC · NVIDIA",""),("Vceenc","VCEEncC · AMD",""),
-  ("Qsvenc","QSVEncC · Intel",""),("EpgDll","EpgDataCap3.dll · 番組情報","*.dll"),("CaptionTool","CaptionProbe · 字幕解析",""),
-  ("ChapterExe","chapter_exe · CM解析の構成ツール",""),("LogoFrame","logoframe · ロゴ検出",""),("DelogoPlugin","DelogoHD.dll · ロゴ消しプラグイン","*.dll"),
+  ("Qsvenc","QSVEncC · Intel",""),("CaptionTool","CaptionProbe · 字幕解析",""),
+  ("ChapterExe","chapter_exe · CM解析の構成ツール",""),("LogoFrame","logoframe · ロゴ検出",""),
   ("CmLogo","対象放送局のロゴLGD · 空欄＝自動生成","*.lgd"),("JoinLogoScript","join_logo_scpスクリプト · 空欄＝JL_標準.txt","*.txt")];
  public static SettingsValues Capture(Settings s) {
   var v=new SettingsValues {OutputFolder=s.OutputFolder,FileName=s.FileName,EncodeCacheFolder=s.EncodeCacheFolder,VaapiDevice=s.VaapiDevice,Parallel=s.Parallel};
@@ -55,7 +55,7 @@ sealed class SettingsScreen:UserControl {
    cachePath,
    Ui.Note("フォルダー選択・標準に戻す操作はその場で保存します。手入力した場合は「キャッシュ設定を保存」を押してください。\n再開用の映像区間・GPU変換の一時ファイル・CM解析用の一時PCM音声を保存します。指定先には専用のTS-Encode-Flow-Cacheフォルダーを作成します。\n動画の保存・検証が成功したら、このジョブのキャッシュを自動削除します。失敗・中止時は再試行用に保持します。\n保存後に開始する処理から適用します。実行中の処理や既存ファイルを移動しません。CM解析結果・インデックス・字幕・比較画像・ツール・設定は従来の場所です。")));
   var toolsStack=Ui.Stack(Ui.Text("変換ツール",21,bold:true),
-   Ui.Note("FFmpegとffprobeはすべての方式で必要です。\n日本語番組名のTS解析には、EDCB x64のEpgDataCap3.dllを指定できます。CMツール（chapter_exe / logoframe / join_logo_scp）は scripts/build-cm-tools.sh で用意したものを指定してください。"),
+   Ui.Note("FFmpegとffprobeはすべての方式で必要です。\nCMツール（chapter_exe / logoframe / join_logo_scp）は scripts/build-cm-tools.sh で用意したものを指定してください。"),
    Ui.Button("ツールを自動検出",Detect,bold:true));
   foreach(var (key,label,filter) in SettingsValues.ToolDefs) {
    string k=key;var entry=Ui.Entry((string)typeof(Settings).GetProperty(k)!.GetValue(s)!);

@@ -16,6 +16,12 @@ Core の `Integration` / `QueueManager` 経由で読み書きします）。そ�
   設定フォルダーを開く。Windows 版の「ツールをまとめてダウンロード」は Windows x64 バイナリ
   専用のため Linux 版にはなく、代わりに `scripts/build-native.sh`（CaptionProbe）と
   `scripts/build-cm-tools.sh`（CM ツール）で用意する旨を画面に注記しています。
+  ツール指定のうち EpgDataCap3.dll（番組情報）と DelogoHD.dll（ロゴ消しプラグイン）は
+  Windows 専用機能のため、Linux 版の設定画面には項目自体がありません（settings.json の
+  フィールドと Windows 版の動作は従来どおりです）。
+  また Linux 版 GUI は、他のプロセス（もう一つの GUI や手編集）が settings.json を
+  書き換えた場合に、1 秒周期の更新で内容を取り込みます（ワーカー側の変更監視と同じ考え方）。
+  起動中の画面に外部の変更が反映されず、自前保存で消えてしまう問題への対策です。
 - 自動化画面：フォルダー監視（フォルダー・サブフォルダー・安定待ち秒数・有効化）と同時変換数。
   録画後 BAT／EPGTimer 連携は Windows 専用のため、カードごと無効化して理由を注記しています
   （BatPresetIndex などの設定値自体は Windows 版と共有されます）。

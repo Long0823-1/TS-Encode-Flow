@@ -153,6 +153,11 @@ sealed class MainViewModel:ViewModelBase {
 
  public void Refresh() {
   try {
+   if(client.ReloadSettingsIfChanged()){
+    PresetsScreen?.Reload();
+    if(Section!="設定")SettingsScreen?.Reload();
+    if(Section!="自動化")AutomationScreen?.Reload();
+   }
    client.Refresh();
    SyncPresetOptions();
    var selected=client.Selected;

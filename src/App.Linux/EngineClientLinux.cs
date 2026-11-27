@@ -8,7 +8,8 @@ namespace EncodeFlow.App.Linux;
 // Integration / QueueManager / Store 経由で行う（Windows GUI・Linux GUI・Worker で相互互換）。
 sealed class EngineClientLinux {
  public string Data {get;}
- public Settings Settings {get;}
+ public Settings Settings {get;private set;}
+ string settingsSnapshot="";
  public string Worker {get;}
  public List<Job> Jobs {get;private set;}=[];
  public WorkerStatus Status {get;private set;}=new();
@@ -36,7 +37,18 @@ sealed class EngineClientLinux {
   return Path.Combine(AppContext.BaseDirectory,"Worker","TS-Encode-Worker");
  }
 
- public void Save() {Settings.Validate();Settings.OutputFolder=Path.GetFullPath(Settings.OutputFolder);foreach(var p in Settings.Presets)Commands.Validate(p);Store.Save(Path.Combine(Data,"settings.json"),Settings);}
+ public void Save() {Settings.Validate();Settings.OutputFolder=Path.GetFullPath(Settings.OutputFolder);foreach(var p in Settings.Presets)Commands.Validate(p);Store.Save(Path.Combine(Data,"settings.json"),Settings);SnapshotSettings();}
+ void SnapshotSettings(){try{settingsSnapshot=File.ReadAllText(Path.Combine(Data,"settings.json"));}catch{settingsSnapshot="";}}
+ // 他プロセス（もう一つのGUI・手編集など）が settings.json を書き換えたら取り込む。
+ // 起動時に一度だけ読む Windows 版と違い、Linux 版は常駐ワーカーの起こし直しや複数起動が
+ // 起きやすいため、ワーカー（src/Worker/Program.cs の変更監視）と同じ考え方を内容比較で行う。
+ // これが無いと、起動後にファイルへ入った変更が画面に反映されず、次の自前保存で静かに消える。
+ public bool ReloadSettingsIfChanged() {
+  string current;try{current=File.ReadAllText(Path.Combine(Data,"settings.json"));}catch{return false;}
+  if(current.Length==0||current==settingsSnapshot)return false;
+  Settings updated;try{updated=Integration.LoadSettings(Data);}catch{return false;}
+  Settings=updated;settingsSnapshot=current;return true;
+ }
  public void Refresh() {Jobs=Integration.ReadJobs(Data);Status=Integration.ReadStatus(Data);}
  public bool WorkerAlive=>Status.Running&&(DateTime.UtcNow-Status.Updated).TotalSeconds<5;
 
